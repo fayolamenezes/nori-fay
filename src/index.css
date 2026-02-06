@@ -1,0 +1,282 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* CLEAN LIGHT (less blue, more neutral, higher clarity) */
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Keep a strong, modern teal primary (less "blue") */
+    --primary: 186 85% 32%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Neutral secondary surfaces */
+    --secondary: 210 18% 93%;
+    --secondary-foreground: 222 35% 16%;
+
+    --muted: 210 16% 94%;
+    --muted-foreground: 215 16% 38%;
+
+    /* Accent: teal-green (prominent but not neon) */
+    --accent: 176 78% 30%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 74% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Clear borders/inputs */
+    --border: 214 18% 82%;
+    --input: 214 18% 88%;
+    --ring: 176 78% 30%;
+
+    /* Semantic colors (less blue) */
+    --ocean-deep: 210 14% 86%;
+    --ocean-surface: 186 85% 32%;
+    --bioluminescent: 176 78% 30%;
+    --seaweed: 158 64% 28%;
+    --coral: 24 95% 52%;
+    --warning: 38 92% 50%;
+    --shrimp: 12 76% 58%;
+
+    /* Gradients (clean + subtle, not blue-heavy) */
+    --gradient-ocean: linear-gradient(
+      180deg,
+      hsl(210 20% 99%) 0%,
+      hsl(210 18% 96%) 100%
+    );
+    --gradient-glow: linear-gradient(
+      135deg,
+      hsl(176 78% 30% / 0.22) 0%,
+      hsl(186 85% 32% / 0.14) 100%
+    );
+    --gradient-card: linear-gradient(
+      145deg,
+      hsl(0 0% 100%) 0%,
+      hsl(210 18% 97%) 100%
+    );
+    --gradient-sensor: linear-gradient(
+      180deg,
+      hsl(176 78% 30% / 0.16) 0%,
+      transparent 100%
+    );
+
+    /* Shadows (clean + prominent) */
+    --shadow-glow: 0 0 26px hsl(176 78% 30% / 0.26);
+    --shadow-card: 0 10px 28px hsl(222 47% 11% / 0.12);
+    --shadow-sensor: 0 0 22px hsl(176 78% 30% / 0.28);
+
+    --radius: 0.75rem;
+
+    /* Sidebar (neutral, not blue) */
+    --sidebar-background: 210 18% 96%;
+    --sidebar-foreground: 222 35% 16%;
+    --sidebar-primary: 186 85% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 16% 92%;
+    --sidebar-accent-foreground: 222 35% 16%;
+    --sidebar-border: 214 18% 82%;
+    --sidebar-ring: 176 78% 30%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+
+  /* Custom scrollbar (clear + neutral) */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--foreground) / 0.20);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.30);
+  }
+}
+
+@layer utilities {
+  /* Glowing effects (cleaner, less neon) */
+  .glow-accent {
+    box-shadow: 0 0 20px hsl(var(--accent) / 0.28), 0 0 44px hsl(var(--accent) / 0.14);
+  }
+
+  .glow-success {
+    box-shadow: 0 0 16px hsl(var(--seaweed) / 0.30);
+  }
+
+  .glow-warning {
+    box-shadow: 0 0 16px hsl(var(--coral) / 0.28);
+  }
+
+  .glow-danger {
+    box-shadow: 0 0 16px hsl(var(--destructive) / 0.24);
+  }
+
+  /* Animated backgrounds */
+  .bg-ocean-gradient {
+    background: var(--gradient-ocean);
+  }
+
+  .bg-card-gradient {
+    background: var(--gradient-card);
+  }
+
+  .bg-sensor-gradient {
+    background: var(--gradient-sensor);
+  }
+
+  /* Wave animation */
+  @keyframes wave {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    25% { transform: translateY(-3px) rotate(1deg); }
+    50% { transform: translateY(0) rotate(0deg); }
+    75% { transform: translateY(3px) rotate(-1deg); }
+  }
+
+  .animate-wave {
+    animation: wave 4s ease-in-out infinite;
+  }
+
+  /* Pulse glow */
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 20px hsl(var(--accent) / 0.28); }
+    50% { opacity: 0.9; box-shadow: 0 0 46px hsl(var(--accent) / 0.40); }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  /* Floating animation */
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  /* Ripple effect */
+  @keyframes ripple {
+    0% { transform: scale(1); opacity: 0.42; }
+    100% { transform: scale(2.5); opacity: 0; }
+  }
+
+  .animate-ripple {
+    animation: ripple 2s ease-out infinite;
+  }
+
+  /* Shimmer effect (more neutral) */
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  .animate-shimmer {
+    background: linear-gradient(90deg, transparent, hsl(var(--accent) / 0.14), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 3s infinite;
+  }
+
+  /* Bioluminescent glow */
+  @keyframes bioluminescent {
+    0%, 100% { filter: brightness(1) drop-shadow(0 0 6px hsl(var(--accent) / 0.65)); }
+    50% { filter: brightness(1.15) drop-shadow(0 0 16px hsl(var(--accent) / 0.72)); }
+  }
+
+  .animate-bioluminescent {
+    animation: bioluminescent 3s ease-in-out infinite;
+  }
+
+  /* Data flow animation */
+  @keyframes data-flow {
+    0% { stroke-dashoffset: 100; }
+    100% { stroke-dashoffset: 0; }
+  }
+
+  .animate-data-flow {
+    stroke-dasharray: 10 5;
+    animation: data-flow 2s linear infinite;
+  }
+
+  /* Monospace for data */
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Glass morphism (cleaner, clearer edge) */
+  .glass {
+    background: hsl(var(--card) / 0.82);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.95);
+  }
+
+  /* Tank visualization (less blue, clearer) */
+  .tank-water {
+    background: linear-gradient(
+      180deg,
+      hsl(176 78% 30% / 0.10) 0%,
+      hsl(186 85% 32% / 0.16) 50%,
+      hsl(210 14% 86% / 0.60) 100%
+    );
+  }
+
+  /* Bubbles animation */
+  @keyframes bubble-rise {
+    0% {
+      transform: translateY(100%) scale(0.8);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.65;
+    }
+    90% {
+      opacity: 0.45;
+    }
+    100% {
+      transform: translateY(-20%) scale(1.2);
+      opacity: 0;
+    }
+  }
+
+  .animate-bubble {
+    animation: bubble-rise 4s ease-in-out infinite;
+  }
+
+  /* Water surface */
+  @keyframes water-surface {
+    0%, 100% {
+      clip-path: polygon(0% 5%, 5% 3%, 10% 6%, 15% 4%, 20% 5%, 25% 3%, 30% 6%, 35% 4%, 40% 5%, 45% 3%, 50% 6%, 55% 4%, 60% 5%, 65% 3%, 70% 6%, 75% 4%, 80% 5%, 85% 3%, 90% 6%, 95% 4%, 100% 5%, 100% 100%, 0% 100%);
+    }
+    50% {
+      clip-path: polygon(0% 3%, 5% 6%, 10% 4%, 15% 5%, 20% 3%, 25% 6%, 30% 4%, 35% 5%, 40% 3%, 45% 6%, 50% 4%, 55% 5%, 60% 3%, 65% 6%, 70% 4%, 75% 5%, 80% 3%, 85% 6%, 90% 4%, 95% 5%, 100% 3%, 100% 100%, 0% 100%);
+    }
+  }
+
+  .animate-water-surface {
+    animation: water-surface 3s ease-in-out infinite;
+  }
+}
