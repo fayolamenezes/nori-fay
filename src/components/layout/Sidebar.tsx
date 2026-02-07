@@ -69,7 +69,7 @@ export const Sidebar = () => {
                 <div className="absolute -top-1 -right-1 w-3 h-3 bg-seaweed rounded-full animate-pulse" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-foreground">AquaAI</h1>
+                <h1 className="text-lg font-bold text-foreground">NORI</h1>
                 <p className="text-xs text-muted-foreground">Smart IMTA System</p>
               </div>
             </div>
