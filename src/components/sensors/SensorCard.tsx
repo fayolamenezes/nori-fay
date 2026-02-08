@@ -34,9 +34,9 @@ const sensorIcons: Record<keyof SensorData, typeof Thermometer> = {
 };
 
 const sensorColors: Record<'optimal' | 'warning' | 'critical', string> = {
-  optimal: 'text-seaweed border-seaweed/30 bg-seaweed/10',
-  warning: 'text-warning border-warning/30 bg-warning/10',
-  critical: 'text-destructive border-destructive/30 bg-destructive/10',
+  optimal: 'text-seaweed border-seaweed/40 bg-seaweed/10',
+  warning: 'text-warning border-warning/40 bg-warning/10',
+  critical: 'text-destructive border-destructive/40 bg-destructive/10',
 };
 
 const sensorGlows: Record<'optimal' | 'warning' | 'critical', string> = {
@@ -64,8 +64,9 @@ export const SensorCard = ({
       transition={{ delay: delay * 0.08 }}
       whileHover={{ scale: 1.03 }}
       className={cn(
-        'relative p-6 rounded-2xl border bg-card-gradient overflow-hidden group',
-        'transition-all duration-300',
+        'relative p-6 rounded-2xl border overflow-hidden group',
+        'bg-card-gradient transition-all duration-300',
+        'shadow-sm hover:shadow-md',
         sensorColors[status],
         sensorGlows[status],
         className
@@ -74,7 +75,7 @@ export const SensorCard = ({
       {/* Background glow */}
       <div className="absolute inset-0 bg-sensor-gradient opacity-0 group-hover:opacity-100 transition-opacity" />
 
-      {/* Status indicator */}
+      {/* Status dot */}
       <div
         className={cn(
           'absolute top-4 right-4 w-3.5 h-3.5 rounded-full',
@@ -90,28 +91,33 @@ export const SensorCard = ({
 
       <div className="relative z-10">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-current/10">
-            <Icon className="w-5 h-5" />
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-current/15">
+            <Icon className="w-5.5 h-5.5 text-current" />
           </div>
-          <span className="text-sm font-semibold uppercase tracking-wider opacity-85">
+
+          {/* Bold + status-colored */}
+          <span className="text-base font-extrabold uppercase tracking-wide text-current">
             {label}
           </span>
         </div>
 
         {/* VALUE */}
         <div className="flex items-end gap-2 mb-2">
-          <span className="text-4xl font-extrabold font-mono leading-none">
+          {/* BIG + HEAVY + STATUS COLOR */}
+          <span className="text-5xl font-black font-mono leading-none text-current">
             {value.toFixed(sensor === 'ph' ? 1 : 2)}
           </span>
-          <span className="text-base font-semibold opacity-70 mb-0.5">
+
+          {/* Unit follows same color but softer */}
+          <span className="text-lg font-bold text-current/80 mb-0.5">
             {unit}
           </span>
         </div>
 
         {/* Trend */}
         {showTrend && (
-          <div className="mt-2 flex items-center gap-2 text-sm font-medium opacity-65">
+          <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-current/80">
             <span
               className={cn(
                 'inline-block w-0 h-0',
