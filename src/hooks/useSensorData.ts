@@ -8,42 +8,56 @@ export const useSensorData = (refreshInterval = 5000) => {
   const [isConnected, setIsConnected] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(new Date());
 
-  const refreshData = useCallback(() => {
-    const newData = generateSensorData();
-    setSensorData(newData);
-    setLastUpdate(new Date());
-    
-    // Update tank status with new sensor data
-    setTankStatus(prev => ({
-      ...prev,
-      sensors: newData,
-      lastUpdated: new Date(),
-      healthScore: calculateHealthScore(newData),
-    }));
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (isConnected) {
-        refreshData();
-      }
-    }, refreshInterval);
-
-    return () => clearInterval(interval);
-  }, [refreshInterval, isConnected, refreshData]);
-
   const calculateHealthScore = (data: SensorData): number => {
     const sensors = Object.keys(data) as (keyof SensorData)[];
     let score = 100;
-
     sensors.forEach(sensor => {
       const status = getSensorStatus(sensor, data[sensor]);
       if (status === 'warning') score -= 5;
       if (status === 'critical') score -= 15;
     });
-
     return Math.max(0, Math.min(100, score));
   };
+
+  const refreshData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sensor-data');
+      const esp = await res.json();
+
+      if (esp && esp.dissolvedOxygen !== undefined) {
+        // Real data from ESP — override only the sensors we have
+        const newData: SensorData = {
+          ...generateSensorData(),           // keeps other fields realistic
+          turbidity: esp.turbidity,
+          dissolvedOxygen: esp.dissolvedOxygen,
+        };
+
+        setSensorData(newData);
+        setLastUpdate(new Date());
+        setIsConnected(true);
+        setTankStatus(prev => ({
+          ...prev,
+          sensors: newData,
+          lastUpdated: new Date(),
+          healthScore: calculateHealthScore(newData),
+        }));
+      } else {
+        // No ESP data yet, fall back to mock
+        const newData = generateSensorData();
+        setSensorData(newData);
+        setLastUpdate(new Date());
+      }
+    } catch {
+      // Network error — mark disconnected
+      setIsConnected(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshData(); // fetch immediately on mount
+    const interval = setInterval(refreshData, refreshInterval);
+    return () => clearInterval(interval);
+  }, [refreshInterval, refreshData]);
 
   const acknowledgeAlert = (alertId: string) => {
     setTankStatus(prev => ({
