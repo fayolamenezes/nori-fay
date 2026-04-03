@@ -9,7 +9,7 @@ export const generateSensorData = (): SensorData => ({
   nitrite: 0.1 + Math.random() * 0.15,
   nitrate: 15 + Math.random() * 10,
   salinity: 25 + Math.random() * 3,
-  turbidity: 10 + Math.random() * 5,
+  turbidity: 200 + Math.random() * 50,
   tan: 0.5 + Math.random() * 0.3,
 });
 
@@ -22,7 +22,7 @@ export const getSensorStatus = (sensor: keyof SensorData, value: number): 'optim
     nitrite: { optimal: [0, 0.2], warning: [0, 0.5] },
     nitrate: { optimal: [0, 20], warning: [0, 40] },
     salinity: { optimal: [24, 28], warning: [20, 32] },
-    turbidity: { optimal: [0, 15], warning: [0, 25] },
+    turbidity: { optimal: [0, 500], warning: [0, 1000] },
     tan: { optimal: [0, 0.5], warning: [0, 1.0] },
   };
 
@@ -165,7 +165,7 @@ export const sensorLabels: Record<keyof SensorData, string> = {
   nitrite: 'Nitrite (NO₂)',
   nitrate: 'Nitrate (NO₃)',
   salinity: 'Salinity',
-  turbidity: 'Turbidity',
+  turbidity: 'TDS (Conductivity)',
   tan: 'Total Ammonia Nitrogen',
 };
 
@@ -177,7 +177,7 @@ export const sensorUnits: Record<keyof SensorData, string> = {
   nitrite: 'mg/L',
   nitrate: 'mg/L',
   salinity: 'ppt',
-  turbidity: 'NTU',
+  turbidity: 'ppm',
   tan: 'mg/L',
 };
 

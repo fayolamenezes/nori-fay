@@ -24,12 +24,10 @@ export const useSensorData = (refreshInterval = 5000) => {
       const res = await fetch('/api/sensor-data');
       const esp = await res.json();
 
-      if (esp && esp.dissolvedOxygen !== undefined) {
-        // Real data from ESP — override only the sensors we have
+      if (esp && esp.turbidity !== undefined) {
         const newData: SensorData = {
-          ...generateSensorData(),           // keeps other fields realistic
-          turbidity: esp.turbidity,
-          dissolvedOxygen: esp.dissolvedOxygen,
+          ...generateSensorData(),
+          turbidity: esp.turbidity,  // real TDS ppm from ESP
         };
 
         setSensorData(newData);
