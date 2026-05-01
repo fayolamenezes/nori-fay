@@ -161,5 +161,4 @@ export const sensorIcons: Record<keyof SensorData, string> = {
   ph: 'FlaskConical',
   dissolvedOxygen: 'Wind',
   turbidity: 'Eye',
-};,
 };
