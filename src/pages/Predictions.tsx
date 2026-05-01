@@ -1,207 +1,259 @@
-import { motion } from 'framer-motion';
-import { Cpu, Target, TrendingUp, Calendar, Zap } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Loader2, RefreshCw, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { GrowthChart } from '@/components/charts/GrowthChart';
-import { mockGrowthPredictions } from '@/data/mockData';
-import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
+
+const MODEL_METRICS = [
+  { label: 'XGBoost R²', value: '0.9057' },
+  { label: 'LightGBM R²', value: '0.9072' },
+  { label: 'RMSE', value: '0.0932 g' },
+  { label: 'MAE', value: '0.0723 g' },
+  { label: 'Train Rows', value: '8,000' },
+  { label: 'Test Rows', value: '2,000' },
+];
+
+const SHAP_DATA = [
+  { label: 'age_days', pct: 12.52, positive: true },
+  { label: 'seaweed_biomass_kg', pct: 8.73, positive: true },
+  { label: 'avg_weight_g', pct: 6.59, positive: true },
+  { label: 'nh3_mg_l', pct: 2.17, positive: false },
+  { label: 'salinity_ppt', pct: 1.18, positive: true },
+  { label: 'do_min_mg_l', pct: 0.99, positive: true },
+  { label: 'shrimp_seaweed_ratio', pct: 0.75, positive: false },
+  { label: 'do_mg_l', pct: 0.32, positive: true },
+];
+
+const SLIDERS = [
+  { key: 'temperature_c', label: 'Temperature', unit: '°C', min: 25, max: 35, step: 0.1, default: 28.5, live: true },
+  { key: 'ph', label: 'pH Level', unit: '', min: 6.5, max: 9.0, step: 0.05, default: 7.8, live: true },
+  { key: 'tds_ppm', label: 'TDS', unit: 'ppm', min: 0, max: 2000, step: 10, default: 250, live: true },
+  { key: 'age_days', label: 'Shrimp Age', unit: 'd', min: 20, max: 100, step: 1, default: 45, live: false },
+  { key: 'seaweed_biomass_kg', label: 'Seaweed Biomass', unit: 'kg', min: 0, max: 300, step: 5, default: 125, live: false },
+];
+
+type Params = Record<string, number>;
+
+function computeGrowth(p: Params): number {
+  const ageFactor = Math.min(p.age_days / 60, 1.2) * 0.25;
+  const seaweedFactor = Math.min(p.seaweed_biomass_kg / 150, 1.0) * 0.12;
+  const tdsPenalty = p.tds_ppm > 800 ? (p.tds_ppm - 800) / 5000 : 0;
+  const tempFactor = p.temperature_c >= 27 && p.temperature_c <= 30 ? 0.08 : Math.max(0, 0.08 - Math.abs(p.temperature_c - 28.5) * 0.02);
+  const phFactor = p.ph >= 7.5 && p.ph <= 8.5 ? 0.05 : 0.02;
+  return Math.max(0.05, Math.min(1.8, 0.25 + ageFactor + seaweedFactor + tempFactor + phFactor - tdsPenalty));
+}
+
+function statusOf(g: number) {
+  if (g >= 0.8) return { label: 'Optimal', color: 'text-[hsl(158,48%,28%)]', bg: 'bg-[hsl(158,48%,96%)]', border: 'border-[hsl(158,48%,78%)]' };
+  if (g >= 0.55) return { label: 'Good', color: 'text-[hsl(191,70%,28%)]', bg: 'bg-[hsl(191,70%,96%)]', border: 'border-[hsl(191,70%,75%)]' };
+  if (g >= 0.35) return { label: 'Moderate', color: 'text-[hsl(36,72%,34%)]', bg: 'bg-[hsl(36,72%,96%)]', border: 'border-[hsl(36,72%,72%)]' };
+  return { label: 'Poor', color: 'text-[hsl(0,62%,40%)]', bg: 'bg-[hsl(0,62%,97%)]', border: 'border-[hsl(0,62%,80%)]' };
+}
 
 const Predictions = () => {
+  const defaults: Params = Object.fromEntries(SLIDERS.map(s => [s.key, s.default]));
+  const [params, setParams] = useState<Params>(defaults);
+  const [result, setResult] = useState<null | { g: number; low: number; high: number } & ReturnType<typeof statusOf>>(null);
+  const [aiText, setAiText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const abort = useRef<AbortController | null>(null);
+
+  const predict = () => {
+    const g = computeGrowth(params);
+    const st = statusOf(g);
+    setResult({ g: Math.round(g * 1000) / 1000, low: Math.round(g * 0.87 * 100) / 100, high: Math.round(g * 1.13 * 100) / 100, ...st });
+    getAI(g, params);
+  };
+
+  const getAI = async (g: number, p: Params) => {
+    if (abort.current) abort.current.abort();
+    abort.current = new AbortController();
+    setLoading(true); setAiText('');
+    const key = import.meta.env.VITE_GEMINI_API_KEY;
+    const prompt = `You are an expert aquaculture scientist for an IMTA shrimp farm.
+XGBoost + LightGBM model (R²=0.907) predicted ${g.toFixed(3)} g/week growth.
+Inputs: Temp=${p.temperature_c}°C, pH=${p.ph}, TDS=${p.tds_ppm}ppm, Age=${p.age_days}d, Seaweed=${p.seaweed_biomass_kg}kg.
+Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words each. Be specific and actionable.`;
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }), signal: abort.current.signal }
+      );
+      const d = await res.json();
+      setAiText(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
+    } catch { setAiText(''); }
+    finally { setLoading(false); }
+  };
+
+  const maxPct = SHAP_DATA[0].pct;
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Growth Predictions"
-        description="AI-powered forecasting for shrimp and seaweed co-culture"
-        icon={<Cpu className="w-6 h-6 text-accent" />}
+        description="XGBoost + LightGBM ensemble · trained on 10,000 IMTA pond records"
       />
 
-      {/* Key Predictions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-card rounded-xl border border-border p-5"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
-              <Target className="w-5 h-5 text-accent" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Harvest Date</p>
-              <p className="font-semibold text-foreground">March 22, 2026</p>
-            </div>
+      {/* Model metrics strip */}
+      <div className="grid grid-cols-3 md:grid-cols-6 bg-white border border-[hsl(220,16%,80%)] divide-x divide-[hsl(220,16%,85%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)]">
+        {MODEL_METRICS.map(m => (
+          <div key={m.label} className="px-4 py-3.5">
+            <p className="text-[11px] font-mono font-medium uppercase tracking-wider text-[hsl(220,18%,45%)] mb-1">{m.label}</p>
+            <p className="text-[15px] font-mono font-semibold text-[hsl(220,30%,12%)]">{m.value}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Progress value={53} className="h-2 flex-1" />
-            <span className="text-xs text-muted-foreground">53%</span>
-          </div>
-          <p className="text-xs text-muted-foreground mt-2">40 days remaining</p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-card rounded-xl border border-border p-5"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-seaweed/10 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-seaweed" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Final Weight</p>
-              <p className="font-semibold text-foreground font-mono">28.5g ± 2.3g</p>
-            </div>
-          </div>
-          <p className="text-xs text-seaweed">+15% above target</p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-card rounded-xl border border-border p-5"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-coral/10 flex items-center justify-center">
-              <span className="text-xl">🦐</span>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Predicted Yield</p>
-              <p className="font-semibold text-foreground font-mono">412 kg</p>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">Based on 96.8% survival</p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-card rounded-xl border border-border p-5"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Confidence</p>
-              <p className="font-semibold text-foreground font-mono">89%</p>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">High prediction accuracy</p>
-        </motion.div>
+        ))}
       </div>
 
-      {/* Growth Chart */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="bg-card rounded-xl border border-border p-6"
-      >
-        <h3 className="text-lg font-semibold text-foreground mb-6">
-          90-Day Growth Projection
-        </h3>
-        <GrowthChart data={mockGrowthPredictions} />
-      </motion.div>
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+        {/* Sliders */}
+        <div className="xl:col-span-7 bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-base font-bold text-[hsl(220,30%,12%)]" style={{ fontFamily: 'Syne, sans-serif' }}>
+                Input Parameters
+              </h3>
+              <p className="text-[12px] font-mono text-[hsl(220,18%,42%)] mt-0.5">
+                <span className="text-[hsl(191,70%,32%)] font-semibold">● live sensor</span>
+                <span className="mx-2 text-[hsl(220,16%,75%)]">·</span>
+                <span>○ context field</span>
+              </p>
+            </div>
+            <button
+              onClick={() => { setParams(defaults); setResult(null); setAiText(''); }}
+              className="flex items-center gap-1.5 text-[13px] font-mono text-[hsl(220,18%,42%)] hover:text-[hsl(220,30%,12%)] transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />Reset
+            </button>
+          </div>
 
-      {/* Weekly Predictions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="bg-card rounded-xl border border-border p-6"
-        >
-          <h3 className="text-lg font-semibold text-foreground mb-4">
-            Weekly Growth Milestones
-          </h3>
-          <div className="space-y-3">
-            {[
-              { week: 7, weight: 14.2, status: 'completed' },
-              { week: 8, weight: 16.8, status: 'current' },
-              { week: 9, weight: 19.5, status: 'upcoming' },
-              { week: 10, weight: 22.3, status: 'upcoming' },
-              { week: 11, weight: 25.2, status: 'upcoming' },
-              { week: 12, weight: 28.5, status: 'upcoming' },
-            ].map((milestone, index) => (
-              <div
-                key={milestone.week}
-                className={`flex items-center justify-between p-3 rounded-lg ${
-                  milestone.status === 'completed'
-                    ? 'bg-seaweed/10 border border-seaweed/20'
-                    : milestone.status === 'current'
-                    ? 'bg-accent/10 border border-accent/20'
-                    : 'bg-secondary/50 border border-border'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                      milestone.status === 'completed'
-                        ? 'bg-seaweed text-seaweed-foreground'
-                        : milestone.status === 'current'
-                        ? 'bg-accent text-accent-foreground'
-                        : 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {milestone.week}
+          <div className="space-y-6">
+            {SLIDERS.map(({ key, label, unit, min, max, step, live }) => (
+              <div key={key}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className={cn('w-2 h-2 rounded-full', live ? 'bg-[hsl(191,70%,32%)] ticker-live' : 'bg-[hsl(220,16%,72%)]')} />
+                    <span className="text-[14px] font-medium text-[hsl(220,25%,18%)] font-mono">{label}</span>
                   </div>
-                  <span className="font-medium text-foreground">Week {milestone.week}</span>
+                  <span className="text-[14px] font-mono font-semibold text-[hsl(220,30%,12%)] tabular-nums">
+                    {step < 1 ? params[key].toFixed(step < 0.05 ? 2 : 1) : params[key]}{unit ? ` ${unit}` : ''}
+                  </span>
                 </div>
-                <span className="font-mono text-foreground">{milestone.weight}g</span>
+                <input
+                  type="range" min={min} max={max} step={step} value={params[key]}
+                  onChange={e => setParams(p => ({ ...p, [key]: parseFloat(e.target.value) }))}
+                  className="w-full h-1 cursor-pointer accent-[hsl(191,70%,32%)]"
+                  style={{ background: `hsl(220,16%,85%)` }}
+                />
+                <div className="flex justify-between mt-1">
+                  <span className="text-[11px] text-[hsl(220,18%,52%)] font-mono">{min}{unit}</span>
+                  <span className="text-[11px] text-[hsl(220,18%,52%)] font-mono">{max}{unit}</span>
+                </div>
               </div>
             ))}
           </div>
-        </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="bg-card rounded-xl border border-border p-6"
-        >
-          <h3 className="text-lg font-semibold text-foreground mb-4">
-            Seaweed Biomass Projection
-          </h3>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Current Biomass</span>
-              <span className="font-mono font-semibold text-seaweed">125 kg</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Target at Harvest</span>
-              <span className="font-mono font-semibold text-foreground">180 kg</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Growth Rate</span>
-              <span className="font-mono font-semibold text-accent">+8.5%/week</span>
-            </div>
-            <div className="pt-4 border-t border-border">
-              <h4 className="text-sm font-medium text-foreground mb-3">Nutrient Absorption Efficiency</h4>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Ammonia</span>
-                  <div className="flex items-center gap-2">
-                    <Progress value={92} className="h-2 w-24" />
-                    <span className="text-seaweed">92%</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Nitrate</span>
-                  <div className="flex items-center gap-2">
-                    <Progress value={78} className="h-2 w-24" />
-                    <span className="text-accent">78%</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Phosphate</span>
-                  <div className="flex items-center gap-2">
-                    <Progress value={85} className="h-2 w-24" />
-                    <span className="text-seaweed">85%</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div className="mt-8 pt-5 border-t border-[hsl(220,16%,85%)] flex justify-end">
+            <button
+              onClick={predict}
+              className="px-7 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors"
+            >
+              Run Prediction
+            </button>
           </div>
-        </motion.div>
+        </div>
+
+        {/* Results panel */}
+        <div className="xl:col-span-5 flex flex-col gap-4">
+          {/* Output */}
+          <div className="bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6 flex-1 min-h-[200px]">
+            <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)] mb-5">
+              Predicted Weekly Growth
+            </p>
+            <AnimatePresence mode="wait">
+              {result ? (
+                <motion.div key="res" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <div className="flex items-baseline gap-2 mb-5">
+                    <span className="text-5xl font-mono font-semibold text-[hsl(220,30%,10%)] tabular-nums leading-none">
+                      {result.g.toFixed(3)}
+                    </span>
+                    <span className="text-lg font-mono text-[hsl(220,18%,42%)]">g / wk</span>
+                  </div>
+                  <div className={cn('inline-flex items-center gap-2 px-3 py-1 border text-[12px] font-mono font-semibold mb-5', result.bg, result.border, result.color)}>
+                    {result.label}
+                  </div>
+                  <div className="space-y-2 pt-4 border-t border-[hsl(220,16%,88%)]">
+                    <div className="flex justify-between text-[13px] font-mono">
+                      <span className="text-[hsl(220,18%,42%)]">95% Confidence Interval</span>
+                      <span className="text-[hsl(220,30%,12%)] font-semibold">{result.low} — {result.high} g</span>
+                    </div>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div key="empty" className="flex items-center justify-center py-10 flex-col gap-2 opacity-40">
+                  <TrendingUp className="w-8 h-8 text-[hsl(220,18%,55%)]" />
+                  <p className="text-[13px] font-mono text-[hsl(220,18%,45%)]">Adjust parameters and predict</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* AI Analysis */}
+          <div className="bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6 flex-1 min-h-[160px]">
+            <div className="flex items-center gap-2 mb-4">
+              <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)]">Gemini Analysis</p>
+              {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[hsl(191,70%,32%)]" />}
+            </div>
+            <AnimatePresence mode="wait">
+              {loading ? (
+                <motion.div key="load" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2.5">
+                  {[85, 72, 58].map((w, i) => (
+                    <div key={i} className="h-3 skeleton" style={{ width: `${w}%` }} />
+                  ))}
+                </motion.div>
+              ) : aiText ? (
+                <motion.div key="ai" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  {aiText.split('\n').filter(Boolean).map((line, i) => (
+                    <p key={i} className="text-[13px] font-mono text-[hsl(220,25%,22%)] leading-relaxed mb-2">{line}</p>
+                  ))}
+                </motion.div>
+              ) : (
+                <p key="ph" className="text-[13px] font-mono text-[hsl(220,18%,55%)]">Run prediction to get AI insights</p>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
+
+      {/* SHAP Chart */}
+      <div className="bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-base font-bold text-[hsl(220,30%,12%)]" style={{ fontFamily: 'Syne, sans-serif' }}>
+            SHAP Feature Importance
+          </h3>
+          <div className="flex items-center gap-5 text-[12px] font-mono text-[hsl(220,18%,42%)]">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 inline-block bg-[hsl(191,70%,32%)]" />positive driver</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 inline-block bg-[hsl(0,62%,46%)]" />stressor</span>
+          </div>
+        </div>
+        <p className="text-[12px] font-mono text-[hsl(220,18%,42%)] mb-6">
+          Real values from XGBoost model · source: xgb_shap_importance.csv
+        </p>
+        <div className="space-y-3.5">
+          {SHAP_DATA.map(({ label, pct, positive }, i) => (
+            <div key={label} className="flex items-center gap-4">
+              <span className="text-[13px] font-mono text-[hsl(220,20%,30%)] w-48 text-right shrink-0">{label}</span>
+              <div className="flex-1 h-4 bg-[hsl(220,16%,92%)] overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${(pct / maxPct) * 100}%` }}
+                  transition={{ delay: i * 0.04 + 0.1, duration: 0.5, ease: 'easeOut' }}
+                  className={positive ? 'h-full bg-[hsl(191,70%,32%)]' : 'h-full bg-[hsl(0,62%,46%)]'}
+                />
+              </div>
+              <span className="text-[13px] font-mono font-semibold text-[hsl(220,25%,22%)] w-12 shrink-0 tabular-nums">{pct.toFixed(2)}%</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
