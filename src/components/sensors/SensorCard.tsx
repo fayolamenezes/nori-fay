@@ -3,11 +3,7 @@ import {
   Thermometer,
   Droplets,
   Wind,
-  AlertTriangle,
-  TestTube2,
-  Waves,
   Eye,
-  Atom,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SensorData } from '@/types/aquaculture';
@@ -25,12 +21,7 @@ const sensorIcons: Record<keyof SensorData, typeof Thermometer> = {
   temperature: Thermometer,
   ph: Droplets,
   dissolvedOxygen: Wind,
-  ammonia: AlertTriangle,
-  nitrite: TestTube2,
-  nitrate: TestTube2,
-  salinity: Waves,
   turbidity: Eye,
-  tan: Atom,
 };
 
 const sensorColors: Record<'optimal' | 'warning' | 'critical', string> = {
