@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, RefreshCw, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
+import { canCallGemini, markGeminiStart, markGeminiEnd } from '@/lib/geminiRateLimit';
 
 const MODEL_METRICS = [
   { label: 'XGBoost R²', value: '0.9057' },
@@ -61,8 +62,9 @@ const Predictions = () => {
 
   const predict = () => {
     if (cooldown || loading) return;
+    if (!canCallGemini()) { setCooldown(true); setTimeout(() => setCooldown(false), 2000); return; }
     setCooldown(true);
-    setTimeout(() => setCooldown(false), 6000);
+    setTimeout(() => setCooldown(false), 8000);
     const g = computeGrowth(params);
     const st = statusOf(g);
     setResult({ g: Math.round(g * 1000) / 1000, low: Math.round(g * 0.87 * 100) / 100, high: Math.round(g * 1.13 * 100) / 100, ...st });
@@ -73,6 +75,7 @@ const Predictions = () => {
     if (abort.current) abort.current.abort();
     abort.current = new AbortController();
     setLoading(true); setAiText('');
+    markGeminiStart();
     const key = import.meta.env.VITE_GEMINI_API_KEY;
     const prompt = `You are an expert aquaculture scientist for an IMTA shrimp farm.
 XGBoost + LightGBM model (R²=0.907) predicted ${g.toFixed(3)} g/week growth.
@@ -86,7 +89,7 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
       const d = await res.json();
       setAiText(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
     } catch { setAiText(''); }
-    finally { setLoading(false); }
+    finally { setLoading(false); markGeminiEnd(); }
   };
 
   const maxPct = SHAP_DATA[0].pct;

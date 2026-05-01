@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
+import { canCallGemini, markGeminiStart, markGeminiEnd } from '@/lib/geminiRateLimit';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
 
 const SHAP_VALUES = [
@@ -83,9 +84,11 @@ const AIInsights = () => {
   const askAI = async (q?: string) => {
     const question = q ?? query;
     if (!question.trim() || askLoading || askCooldown) return;
+    if (!canCallGemini()) { setAskCooldown(true); setTimeout(() => setAskCooldown(false), 2000); return; }
     setAskLoading(true); setAiReply('');
     setAskCooldown(true);
-    setTimeout(() => setAskCooldown(false), 6000);
+    markGeminiStart();
+    setTimeout(() => setAskCooldown(false), 8000);
     const key = import.meta.env.VITE_GEMINI_API_KEY;
     const prompt = `You are an aquaculture scientist for an IMTA shrimp farm with XGBoost + LightGBM models (R²=0.907).
 Tank: 15,000 shrimp, day 45, temp 28.5°C, pH 7.8, TDS 250ppm, seaweed 125kg.
@@ -100,7 +103,7 @@ Question: ${question}`;
       const d = await res.json();
       setAiReply(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response.');
     } catch { setAiReply('Network error. Please try again.'); }
-    finally { setAskLoading(false); }
+    finally { setAskLoading(false); markGeminiEnd(); }
   };
 
   return (

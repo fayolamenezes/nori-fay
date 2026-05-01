@@ -7,6 +7,7 @@ import { GrowthChart } from '@/components/charts/GrowthChart';
 import { generateHistoricalData, mockGrowthPredictions, sensorLabels } from '@/data/mockData';
 import { SensorData } from '@/types/aquaculture';
 import { cn } from '@/lib/utils';
+import { canCallGemini, markGeminiStart, markGeminiEnd } from '@/lib/geminiRateLimit';
 
 const REAL_SENSORS: (keyof SensorData)[] = ['temperature', 'ph', 'turbidity'];
 const TIME_RANGES = ['24h', '7d', '30d'] as const;
@@ -39,9 +40,11 @@ const Analytics = () => {
 
   const genReport = useCallback(async () => {
     if (loadingReport || reportCooldown) return;
+    if (!canCallGemini()) { setReportCooldown(true); setTimeout(() => setReportCooldown(false), 2000); return; }
     setLoadingReport(true); setReport('');
     setReportCooldown(true);
-    setTimeout(() => setReportCooldown(false), 6000);
+    markGeminiStart();
+    setTimeout(() => setReportCooldown(false), 8000);
     const key = import.meta.env.VITE_GEMINI_API_KEY;
     const prompt = `You are an aquaculture data analyst for an IMTA shrimp farm.
 Write a ${timeRange} performance report in exactly 4 sentences. Plain text, no markdown. Start with the most important finding. Be specific with numbers.
@@ -56,7 +59,7 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
       const d = await res.json();
       setReport(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to generate.');
     } catch { setReport('Network error. Try again.'); }
-    finally { setLoadingReport(false); }
+    finally { setLoadingReport(false); markGeminiEnd(); }
   }, [timeRange]);
 
   return (
