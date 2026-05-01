@@ -30,6 +30,7 @@ const Analytics = () => {
   const [tab, setTab] = useState<'sensors' | 'growth' | 'corr' | 'report'>('sensors');
   const [report, setReport] = useState('');
   const [loadingReport, setLoadingReport] = useState(false);
+  const [reportCooldown, setReportCooldown] = useState(false);
 
   const historicalData = generateHistoricalData(timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : 30);
 
@@ -37,21 +38,23 @@ const Analytics = () => {
     setSelectedSensors(p => p.includes(s) ? p.filter(x => x !== s) : [...p, s]);
 
   const genReport = useCallback(async () => {
+    if (loadingReport || reportCooldown) return;
     setLoadingReport(true); setReport('');
-    const key = import.meta.env.VITE_OPENAI_API_KEY;
+    setReportCooldown(true);
+    setTimeout(() => setReportCooldown(false), 6000);
+    const key = import.meta.env.VITE_GEMINI_API_KEY;
     const prompt = `You are an aquaculture data analyst for an IMTA shrimp farm.
 Write a ${timeRange} performance report in exactly 4 sentences. Plain text, no markdown. Start with the most important finding. Be specific with numbers.
 Data: Temp 28.5°C avg, pH 7.9 avg, TDS 245ppm avg. XGBoost predicts 0.78 g/wk growth (baseline ~0.55).
 Shrimp: 15,000 count, day 45, 96.8% survival, FCR 1.42. Seaweed: 125kg, active ammonia uptake.
 Highlight performance vs baseline, any sensor risks, and 2 specific optimizations.`;
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 400 }),
-      });
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) }
+      );
       const d = await res.json();
-      setReport(d?.choices?.[0]?.message?.content ?? 'Failed to generate.');
+      setReport(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to generate.');
     } catch { setReport('Network error. Try again.'); }
     finally { setLoadingReport(false); }
   }, [timeRange]);
@@ -211,10 +214,10 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
                 <h3 className="text-base font-bold text-[hsl(220,30%,12%)]" style={{ fontFamily: 'Syne, sans-serif' }}>Performance Report</h3>
                 <p className="text-[13px] font-mono text-[hsl(220,18%,42%)] mt-0.5">Gemini-generated · {timeRange} window</p>
               </div>
-              <button onClick={genReport} disabled={loadingReport}
+              <button onClick={genReport} disabled={loadingReport || reportCooldown}
                 className="flex items-center gap-2 px-4 py-2 border border-[hsl(220,16%,78%)] text-[13px] font-mono font-medium text-[hsl(220,18%,38%)] hover:text-[hsl(220,30%,12%)] hover:border-[hsl(191,70%,40%)] transition-colors disabled:opacity-40 bg-white">
                 {loadingReport ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                {loadingReport ? 'Generating...' : report ? 'Regenerate' : 'Generate Report'}
+                {loadingReport ? 'Generating...' : reportCooldown ? 'Please wait...' : report ? 'Regenerate' : 'Generate Report'}
               </button>
             </div>
             <AnimatePresence mode="wait">

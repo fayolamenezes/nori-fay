@@ -67,6 +67,7 @@ const AIInsights = () => {
   const [query, setQuery] = useState('');
   const [aiReply, setAiReply] = useState('');
   const [askLoading, setAskLoading] = useState(false);
+  const [askCooldown, setAskCooldown] = useState(false);
 
   const maxPct = SHAP_VALUES[0].pct;
 
@@ -81,22 +82,23 @@ const AIInsights = () => {
 
   const askAI = async (q?: string) => {
     const question = q ?? query;
-    if (!question.trim()) return;
+    if (!question.trim() || askLoading || askCooldown) return;
     setAskLoading(true); setAiReply('');
-    const key = import.meta.env.VITE_OPENAI_API_KEY;
+    setAskCooldown(true);
+    setTimeout(() => setAskCooldown(false), 6000);
+    const key = import.meta.env.VITE_GEMINI_API_KEY;
     const prompt = `You are an aquaculture scientist for an IMTA shrimp farm with XGBoost + LightGBM models (R²=0.907).
 Tank: 15,000 shrimp, day 45, temp 28.5°C, pH 7.8, TDS 250ppm, seaweed 125kg.
 Top SHAP: age_days (12.5%), seaweed_biomass (8.7%), avg_weight (6.6%), nh3 (2.2%).
 Answer in max 4 sentences. Plain text, no markdown. Be precise.
 Question: ${question}`;
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 300 }),
-      });
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) }
+      );
       const d = await res.json();
-      setAiReply(d?.choices?.[0]?.message?.content ?? 'No response.');
+      setAiReply(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response.');
     } catch { setAiReply('Network error. Please try again.'); }
     finally { setAskLoading(false); }
   };
@@ -257,10 +259,10 @@ Question: ${question}`;
               className="w-full bg-[hsl(220,16%,96%)] border border-[hsl(220,16%,80%)] px-4 py-3 text-[13px] font-mono text-[hsl(220,25%,18%)] placeholder:text-[hsl(220,18%,60%)] resize-none focus:outline-none focus:border-[hsl(191,70%,40%)]"
             />
             <div className="flex justify-end mt-3">
-              <button onClick={() => askAI()} disabled={askLoading || !query.trim()}
+              <button onClick={() => askAI()} disabled={askLoading || askCooldown || !query.trim()}
                 className="px-6 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors disabled:opacity-40 flex items-center gap-2">
                 {askLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                {askLoading ? 'Thinking...' : 'Submit'}
+                {askCooldown && !askLoading ? 'Please wait...' : askLoading ? 'Thinking...' : 'Submit'}
               </button>
             </div>
             <AnimatePresence mode="wait">
