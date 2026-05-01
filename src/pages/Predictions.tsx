@@ -69,18 +69,20 @@ const Predictions = () => {
     if (abort.current) abort.current.abort();
     abort.current = new AbortController();
     setLoading(true); setAiText('');
-    const key = import.meta.env.VITE_GEMINI_API_KEY;
+    const key = import.meta.env.VITE_OPENAI_API_KEY;
     const prompt = `You are an expert aquaculture scientist for an IMTA shrimp farm.
 XGBoost + LightGBM model (R²=0.907) predicted ${g.toFixed(3)} g/week growth.
 Inputs: Temp=${p.temperature_c}°C, pH=${p.ph}, TDS=${p.tds_ppm}ppm, Age=${p.age_days}d, Seaweed=${p.seaweed_biomass_kg}kg.
 Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words each. Be specific and actionable.`;
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }), signal: abort.current.signal }
-      );
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 300 }),
+        signal: abort.current.signal,
+      });
       const d = await res.json();
-      setAiText(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
+      setAiText(d?.choices?.[0]?.message?.content ?? '');
     } catch { setAiText(''); }
     finally { setLoading(false); }
   };

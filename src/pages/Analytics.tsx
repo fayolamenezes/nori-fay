@@ -38,19 +38,20 @@ const Analytics = () => {
 
   const genReport = useCallback(async () => {
     setLoadingReport(true); setReport('');
-    const key = import.meta.env.VITE_GEMINI_API_KEY;
+    const key = import.meta.env.VITE_OPENAI_API_KEY;
     const prompt = `You are an aquaculture data analyst for an IMTA shrimp farm.
 Write a ${timeRange} performance report in exactly 4 sentences. Plain text, no markdown. Start with the most important finding. Be specific with numbers.
 Data: Temp 28.5°C avg, pH 7.9 avg, TDS 245ppm avg. XGBoost predicts 0.78 g/wk growth (baseline ~0.55).
 Shrimp: 15,000 count, day 45, 96.8% survival, FCR 1.42. Seaweed: 125kg, active ammonia uptake.
 Highlight performance vs baseline, any sensor risks, and 2 specific optimizations.`;
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) }
-      );
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 400 }),
+      });
       const d = await res.json();
-      setReport(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to generate.');
+      setReport(d?.choices?.[0]?.message?.content ?? 'Failed to generate.');
     } catch { setReport('Network error. Try again.'); }
     finally { setLoadingReport(false); }
   }, [timeRange]);
