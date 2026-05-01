@@ -29,7 +29,7 @@ export const useSensorData = (refreshInterval = 5000) => {
           ...generateSensorData(),
           turbidity: esp.tds ?? undefined,        // real TDS (ppm) from ESP → mapped to turbidity field
           ph: esp.ph ?? undefined,                // real pH from ESP
-          // temperature, dissolvedOxygen are simulated on ESP — not used here
+          temperature: esp.temperature ?? undefined,
         };
 
         setSensorData(newData);
