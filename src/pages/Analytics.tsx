@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -32,6 +32,7 @@ const Analytics = () => {
   const [report, setReport] = useState('');
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportCooldown, setReportCooldown] = useState(false);
+  const reportCache = useRef<Record<string, string>>({});
 
   const historicalData = generateHistoricalData(timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : 30);
 
@@ -40,7 +41,18 @@ const Analytics = () => {
 
   const genReport = useCallback(async () => {
     if (loadingReport || reportCooldown) return;
-    if (!canCallGemini()) { setReportCooldown(true); setTimeout(() => setReportCooldown(false), 2000); return; }
+
+    // Return cached report for same time range
+    if (reportCache.current[timeRange]) {
+      setReport(reportCache.current[timeRange]);
+      return;
+    }
+
+    if (!canCallGemini()) {
+      setReport('Rate limit reached — please wait a moment and try again.');
+      return;
+    }
+
     setLoadingReport(true); setReport('');
     setReportCooldown(true);
     markGeminiStart();
@@ -56,11 +68,17 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) }
       );
+      if (res.status === 429) {
+        setReport('Rate limit reached — please wait a moment and try again.');
+        return;
+      }
       const d = await res.json();
-      setReport(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to generate.');
+      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to generate.';
+      reportCache.current[timeRange] = text;
+      setReport(text);
     } catch { setReport('Network error. Try again.'); }
     finally { setLoadingReport(false); markGeminiEnd(); }
-  }, [timeRange]);
+  }, [timeRange, loadingReport, reportCooldown]);
 
   return (
     <div className="space-y-6">
@@ -72,24 +90,19 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
             {TIME_RANGES.map(r => (
               <button key={r} onClick={() => setTimeRange(r)}
                 className={cn('px-4 py-2 text-[13px] font-mono font-medium transition-colors',
-                  timeRange === r
-                    ? 'bg-[hsl(191,70%,32%)] text-white'
-                    : 'bg-white text-[hsl(220,18%,38%)] hover:text-[hsl(220,30%,12%)] border-l border-[hsl(220,16%,80%)]'
-                )}>
-                {r}
-              </button>
+                  timeRange === r ? 'bg-[hsl(191,70%,32%)] text-white' : 'bg-white text-[hsl(220,18%,38%)] hover:text-[hsl(220,30%,12%)] border-l border-[hsl(220,16%,80%)]'
+                )}>{r}</button>
             ))}
           </div>
         }
       />
 
-      {/* KPIs */}
       <div className={cn(panel, 'grid grid-cols-2 md:grid-cols-4 divide-x divide-[hsl(220,16%,85%)]')}>
         {[
-          { label: 'Avg Temperature', val: '28.4°C', delta: '+0.3°C vs prior period', good: true },
-          { label: 'Avg pH', val: '7.9', delta: 'Within optimal range', good: true },
-          { label: 'Avg TDS', val: '245 ppm', delta: 'Low — good water quality', good: true },
-          { label: 'Model Growth', val: '0.78 g/wk', delta: '+42% above baseline', good: true },
+          { label: 'Avg Temperature', val: '28.4°C', delta: '+0.3°C vs prior period' },
+          { label: 'Avg pH', val: '7.9', delta: 'Within optimal range' },
+          { label: 'Avg TDS', val: '245 ppm', delta: 'Low — good water quality' },
+          { label: 'Model Growth', val: '0.78 g/wk', delta: '+42% above baseline' },
         ].map(k => (
           <div key={k.label} className="px-5 py-4">
             <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)] mb-1.5">{k.label}</p>
@@ -99,7 +112,6 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
         ))}
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-6 border-b border-[hsl(220,16%,82%)]">
         {(['sensors', 'growth', 'corr', 'report'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
@@ -109,7 +121,6 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
         ))}
       </div>
 
-      {/* Sensors */}
       {tab === 'sensors' && (
         <div className="space-y-4">
           <div className="flex gap-2">
@@ -120,8 +131,7 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
                     ? 'border-[hsl(191,70%,40%)] text-[hsl(191,70%,28%)] bg-[hsl(191,70%,96%)]'
                     : 'border-[hsl(220,16%,80%)] text-[hsl(220,18%,42%)] bg-white hover:text-[hsl(220,30%,12%)]'
                 )}>
-                {sensorLabels[s]}
-                <span className="ml-2 text-[11px] opacity-60 font-normal">LIVE</span>
+                {sensorLabels[s]}<span className="ml-2 text-[11px] opacity-60 font-normal">LIVE</span>
               </button>
             ))}
           </div>
@@ -132,7 +142,6 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
         </div>
       )}
 
-      {/* Growth */}
       {tab === 'growth' && (
         <div className="space-y-4">
           <div className={cn(panel, 'p-6')}>
@@ -161,7 +170,6 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
         </div>
       )}
 
-      {/* Correlations */}
       {tab === 'corr' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -181,11 +189,8 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
                         </span>
                       </div>
                       <div className="h-2 bg-[hsl(220,16%,92%)] overflow-hidden">
-                        <motion.div
-                          initial={{ width: 0 }} animate={{ width: `${Math.abs(r) * 100}%` }}
-                          transition={{ duration: 0.5 }}
-                          className={pos ? 'h-full bg-[hsl(158,48%,32%)]' : 'h-full bg-[hsl(0,62%,46%)]'}
-                        />
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${Math.abs(r) * 100}%` }} transition={{ duration: 0.5 }}
+                          className={pos ? 'h-full bg-[hsl(158,48%,32%)]' : 'h-full bg-[hsl(0,62%,46%)]'} />
                       </div>
                     </div>
                   ))}
@@ -208,7 +213,6 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
         </div>
       )}
 
-      {/* AI Report */}
       {tab === 'report' && (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
           <div className={cn(panel, 'xl:col-span-8 p-6')}>
@@ -259,8 +263,7 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
               <div className="space-y-2 text-[13px] font-mono text-[hsl(220,22%,32%)]">
                 {['Performance vs baseline', 'Sensor risk assessment', 'Growth trajectory', 'Top 2 optimizations', 'IMTA system health'].map(i => (
                   <p key={i} className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[hsl(191,70%,32%)] inline-block shrink-0" />
-                    {i}
+                    <span className="w-1.5 h-1.5 rounded-full bg-[hsl(191,70%,32%)] inline-block shrink-0" />{i}
                   </p>
                 ))}
               </div>

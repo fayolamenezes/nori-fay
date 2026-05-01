@@ -1,25 +1,30 @@
-// Shared Gemini rate limiter — persists across page navigation within the same session.
-// Module-level state means navigating between pages does NOT reset the cooldown.
+// Tracks Gemini API calls across the entire app to stay under 15 req/min
+// Uses a sliding window — only counts calls in the last 60 seconds
 
-const COOLDOWN_MS = 8000;
+const WINDOW_MS = 60_000; // 1 minute
+const MAX_CALLS = 12; // stay under 15 with some buffer
 
-let lastCallTime = 0;
-let activeRequest = false;
+const callTimestamps: number[] = [];
 
 export function canCallGemini(): boolean {
-  return !activeRequest && Date.now() - lastCallTime >= COOLDOWN_MS;
+  const now = Date.now();
+  // Remove timestamps older than 60 seconds
+  const recent = callTimestamps.filter(t => now - t < WINDOW_MS);
+  callTimestamps.length = 0;
+  callTimestamps.push(...recent);
+  return callTimestamps.length < MAX_CALLS;
 }
 
 export function markGeminiStart(): void {
-  lastCallTime = Date.now();
-  activeRequest = true;
+  callTimestamps.push(Date.now());
 }
 
 export function markGeminiEnd(): void {
-  activeRequest = false;
+  // No-op for now — start is sufficient for tracking
 }
 
-/** Returns how many milliseconds remain in the cooldown (0 if ready). */
-export function cooldownRemaining(): number {
-  return Math.max(0, COOLDOWN_MS - (Date.now() - lastCallTime));
+export function getRemainingCalls(): number {
+  const now = Date.now();
+  const recent = callTimestamps.filter(t => now - t < WINDOW_MS);
+  return Math.max(0, MAX_CALLS - recent.length);
 }

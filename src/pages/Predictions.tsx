@@ -51,6 +51,16 @@ function statusOf(g: number) {
   return { label: 'Poor', color: 'text-[hsl(0,62%,40%)]', bg: 'bg-[hsl(0,62%,97%)]', border: 'border-[hsl(0,62%,80%)]' };
 }
 
+function getCacheKey(p: Params): string {
+  return [
+    Math.round(p.temperature_c * 10) / 10,
+    Math.round(p.ph * 10) / 10,
+    Math.round(p.tds_ppm / 50) * 50,
+    p.age_days,
+    Math.round(p.seaweed_biomass_kg / 25) * 25,
+  ].join('_');
+}
+
 const Predictions = () => {
   const defaults: Params = Object.fromEntries(SLIDERS.map(s => [s.key, s.default]));
   const [params, setParams] = useState<Params>(defaults);
@@ -59,19 +69,35 @@ const Predictions = () => {
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  const aiCache = useRef<Record<string, string>>({});
 
   const predict = () => {
-    if (cooldown || loading) return;
-    if (!canCallGemini()) { setCooldown(true); setTimeout(() => setCooldown(false), 2000); return; }
-    setCooldown(true);
-    setTimeout(() => setCooldown(false), 8000);
+    if (loading) return;
+
     const g = computeGrowth(params);
     const st = statusOf(g);
     setResult({ g: Math.round(g * 1000) / 1000, low: Math.round(g * 0.87 * 100) / 100, high: Math.round(g * 1.13 * 100) / 100, ...st });
-    getAI(g, params);
+
+    const cacheKey = getCacheKey(params);
+
+    // Return cached response instantly if same params
+    if (aiCache.current[cacheKey]) {
+      setAiText(aiCache.current[cacheKey]);
+      return;
+    }
+
+    if (!canCallGemini()) {
+      setAiText('Rate limit reached — please wait a moment and try again.');
+      return;
+    }
+
+    if (cooldown) return;
+    setCooldown(true);
+    setTimeout(() => setCooldown(false), 8000);
+    getAI(g, params, cacheKey);
   };
 
-  const getAI = async (g: number, p: Params) => {
+  const getAI = async (g: number, p: Params, cacheKey: string) => {
     if (abort.current) abort.current.abort();
     abort.current = new AbortController();
     setLoading(true); setAiText('');
@@ -86,8 +112,14 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }), signal: abort.current.signal }
       );
+      if (res.status === 429) {
+        setAiText('Rate limit reached — please wait a moment and try again.');
+        return;
+      }
       const d = await res.json();
-      setAiText(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
+      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      aiCache.current[cacheKey] = text;
+      setAiText(text);
     } catch { setAiText(''); }
     finally { setLoading(false); markGeminiEnd(); }
   };
@@ -101,7 +133,6 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
         description="XGBoost + LightGBM ensemble · trained on 10,000 IMTA pond records"
       />
 
-      {/* Model metrics strip */}
       <div className="grid grid-cols-3 md:grid-cols-6 bg-white border border-[hsl(220,16%,80%)] divide-x divide-[hsl(220,16%,85%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)]">
         {MODEL_METRICS.map(m => (
           <div key={m.label} className="px-4 py-3.5">
@@ -112,23 +143,18 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
-        {/* Sliders */}
         <div className="xl:col-span-7 bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h3 className="text-base font-bold text-[hsl(220,30%,12%)]" style={{ fontFamily: 'Syne, sans-serif' }}>
-                Input Parameters
-              </h3>
+              <h3 className="text-base font-bold text-[hsl(220,30%,12%)]" style={{ fontFamily: 'Syne, sans-serif' }}>Input Parameters</h3>
               <p className="text-[12px] font-mono text-[hsl(220,18%,42%)] mt-0.5">
                 <span className="text-[hsl(191,70%,32%)] font-semibold">● live sensor</span>
                 <span className="mx-2 text-[hsl(220,16%,75%)]">·</span>
                 <span>○ context field</span>
               </p>
             </div>
-            <button
-              onClick={() => { setParams(defaults); setResult(null); setAiText(''); }}
-              className="flex items-center gap-1.5 text-[13px] font-mono text-[hsl(220,18%,42%)] hover:text-[hsl(220,30%,12%)] transition-colors"
-            >
+            <button onClick={() => { setParams(defaults); setResult(null); setAiText(''); }}
+              className="flex items-center gap-1.5 text-[13px] font-mono text-[hsl(220,18%,42%)] hover:text-[hsl(220,30%,12%)] transition-colors">
               <RefreshCw className="w-3.5 h-3.5" />Reset
             </button>
           </div>
@@ -145,12 +171,10 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
                     {step < 1 ? params[key].toFixed(step < 0.05 ? 2 : 1) : params[key]}{unit ? ` ${unit}` : ''}
                   </span>
                 </div>
-                <input
-                  type="range" min={min} max={max} step={step} value={params[key]}
+                <input type="range" min={min} max={max} step={step} value={params[key]}
                   onChange={e => setParams(p => ({ ...p, [key]: parseFloat(e.target.value) }))}
                   className="w-full h-1 cursor-pointer accent-[hsl(191,70%,32%)]"
-                  style={{ background: `hsl(220,16%,85%)` }}
-                />
+                  style={{ background: `hsl(220,16%,85%)` }} />
                 <div className="flex justify-between mt-1">
                   <span className="text-[11px] text-[hsl(220,18%,52%)] font-mono">{min}{unit}</span>
                   <span className="text-[11px] text-[hsl(220,18%,52%)] font-mono">{max}{unit}</span>
@@ -160,30 +184,21 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
           </div>
 
           <div className="mt-8 pt-5 border-t border-[hsl(220,16%,85%)] flex justify-end">
-            <button
-              onClick={predict}
-              disabled={loading || cooldown}
-              className="px-7 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            <button onClick={predict} disabled={loading || cooldown}
+              className="px-7 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               {cooldown ? 'Please wait...' : 'Run Prediction'}
             </button>
           </div>
         </div>
 
-        {/* Results panel */}
         <div className="xl:col-span-5 flex flex-col gap-4">
-          {/* Output */}
           <div className="bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6 flex-1 min-h-[200px]">
-            <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)] mb-5">
-              Predicted Weekly Growth
-            </p>
+            <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)] mb-5">Predicted Weekly Growth</p>
             <AnimatePresence mode="wait">
               {result ? (
                 <motion.div key="res" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <div className="flex items-baseline gap-2 mb-5">
-                    <span className="text-5xl font-mono font-semibold text-[hsl(220,30%,10%)] tabular-nums leading-none">
-                      {result.g.toFixed(3)}
-                    </span>
+                    <span className="text-5xl font-mono font-semibold text-[hsl(220,30%,10%)] tabular-nums leading-none">{result.g.toFixed(3)}</span>
                     <span className="text-lg font-mono text-[hsl(220,18%,42%)]">g / wk</span>
                   </div>
                   <div className={cn('inline-flex items-center gap-2 px-3 py-1 border text-[12px] font-mono font-semibold mb-5', result.bg, result.border, result.color)}>
@@ -205,7 +220,6 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
             </AnimatePresence>
           </div>
 
-          {/* AI Analysis */}
           <div className="bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6 flex-1 min-h-[160px]">
             <div className="flex items-center gap-2 mb-4">
               <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)]">Gemini Analysis</p>
@@ -214,9 +228,7 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
             <AnimatePresence mode="wait">
               {loading ? (
                 <motion.div key="load" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2.5">
-                  {[85, 72, 58].map((w, i) => (
-                    <div key={i} className="h-3 skeleton" style={{ width: `${w}%` }} />
-                  ))}
+                  {[85, 72, 58].map((w, i) => <div key={i} className="h-3 skeleton" style={{ width: `${w}%` }} />)}
                 </motion.div>
               ) : aiText ? (
                 <motion.div key="ai" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -232,28 +244,22 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
         </div>
       </div>
 
-      {/* SHAP Chart */}
       <div className="bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-base font-bold text-[hsl(220,30%,12%)]" style={{ fontFamily: 'Syne, sans-serif' }}>
-            SHAP Feature Importance
-          </h3>
+          <h3 className="text-base font-bold text-[hsl(220,30%,12%)]" style={{ fontFamily: 'Syne, sans-serif' }}>SHAP Feature Importance</h3>
           <div className="flex items-center gap-5 text-[12px] font-mono text-[hsl(220,18%,42%)]">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 inline-block bg-[hsl(191,70%,32%)]" />positive driver</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 inline-block bg-[hsl(0,62%,46%)]" />stressor</span>
           </div>
         </div>
-        <p className="text-[12px] font-mono text-[hsl(220,18%,42%)] mb-6">
-          Real values from XGBoost model · source: xgb_shap_importance.csv
-        </p>
+        <p className="text-[12px] font-mono text-[hsl(220,18%,42%)] mb-6">Real values from XGBoost model · source: xgb_shap_importance.csv</p>
         <div className="space-y-3.5">
           {SHAP_DATA.map(({ label, pct, positive }, i) => (
             <div key={label} className="flex items-center gap-4">
               <span className="text-[13px] font-mono text-[hsl(220,20%,30%)] w-48 text-right shrink-0">{label}</span>
               <div className="flex-1 h-4 bg-[hsl(220,16%,92%)] overflow-hidden">
                 <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${(pct / maxPct) * 100}%` }}
+                  initial={{ width: 0 }} animate={{ width: `${(pct / maxPct) * 100}%` }}
                   transition={{ delay: i * 0.04 + 0.1, duration: 0.5, ease: 'easeOut' }}
                   className={positive ? 'h-full bg-[hsl(191,70%,32%)]' : 'h-full bg-[hsl(0,62%,46%)]'}
                 />

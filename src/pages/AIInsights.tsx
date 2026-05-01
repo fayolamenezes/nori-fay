@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -69,6 +69,7 @@ const AIInsights = () => {
   const [aiReply, setAiReply] = useState('');
   const [askLoading, setAskLoading] = useState(false);
   const [askCooldown, setAskCooldown] = useState(false);
+  const aiCache = useRef<Record<string, string>>({});
 
   const maxPct = SHAP_VALUES[0].pct;
 
@@ -84,7 +85,18 @@ const AIInsights = () => {
   const askAI = async (q?: string) => {
     const question = q ?? query;
     if (!question.trim() || askLoading || askCooldown) return;
-    if (!canCallGemini()) { setAskCooldown(true); setTimeout(() => setAskCooldown(false), 2000); return; }
+
+    // Return cached response for same question
+    if (aiCache.current[question]) {
+      setAiReply(aiCache.current[question]);
+      return;
+    }
+
+    if (!canCallGemini()) {
+      setAiReply('Rate limit reached — please wait a moment and try again.');
+      return;
+    }
+
     setAskLoading(true); setAiReply('');
     setAskCooldown(true);
     markGeminiStart();
@@ -100,8 +112,14 @@ Question: ${question}`;
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) }
       );
+      if (res.status === 429) {
+        setAiReply('Rate limit reached — please wait a moment and try again.');
+        return;
+      }
       const d = await res.json();
-      setAiReply(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response.');
+      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response.';
+      aiCache.current[question] = text;
+      setAiReply(text);
     } catch { setAiReply('Network error. Please try again.'); }
     finally { setAskLoading(false); markGeminiEnd(); }
   };
@@ -120,7 +138,6 @@ Question: ${question}`;
         }
       />
 
-      {/* Tab bar */}
       <div className="flex gap-6 border-b border-[hsl(220,16%,82%)]">
         {(['shap', 'sweep', 'ask'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
@@ -130,7 +147,6 @@ Question: ${question}`;
         ))}
       </div>
 
-      {/* SHAP */}
       {tab === 'shap' && (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
           <div className={cn(panel, 'xl:col-span-7 p-6')}>
@@ -175,7 +191,6 @@ Question: ${question}`;
         </div>
       )}
 
-      {/* Sweep */}
       {tab === 'sweep' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           <div className={cn(panel, 'lg:col-span-4 p-6')}>
@@ -183,11 +198,8 @@ Question: ${question}`;
             <div className="space-y-4">
               <div>
                 <p className="text-[12px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)] mb-2">Variable</p>
-                <select
-                  className="w-full bg-[hsl(220,16%,96%)] border border-[hsl(220,16%,80%)] px-3 py-2.5 text-[13px] font-mono text-[hsl(220,25%,18%)] focus:outline-none focus:border-[hsl(191,70%,40%)]"
-                  value={sweepVar}
-                  onChange={e => { setSweepVar(e.target.value); setSweepResult(null); }}
-                >
+                <select className="w-full bg-[hsl(220,16%,96%)] border border-[hsl(220,16%,80%)] px-3 py-2.5 text-[13px] font-mono text-[hsl(220,25%,18%)] focus:outline-none focus:border-[hsl(191,70%,40%)]"
+                  value={sweepVar} onChange={e => { setSweepVar(e.target.value); setSweepResult(null); }}>
                   {SWEEP_VARS.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
                 </select>
               </div>
@@ -224,17 +236,13 @@ Question: ${question}`;
                     <CartesianGrid vertical={false} stroke="hsl(220,16%,88%)" />
                     <XAxis dataKey="value" tick={{ fill: 'hsl(220,18%,42%)', fontSize: 12, fontFamily: 'IBM Plex Mono' }} tickLine={false} axisLine={false} dy={8} />
                     <YAxis tick={{ fill: 'hsl(220,18%,42%)', fontSize: 12, fontFamily: 'IBM Plex Mono' }} tickLine={false} axisLine={false} />
-                    <Tooltip
-                      contentStyle={{ background: 'white', border: '1px solid hsl(220,16%,82%)', borderRadius: 2, fontSize: 13, fontFamily: 'IBM Plex Mono' }}
-                      itemStyle={{ color: 'hsl(220,30%,12%)' }}
-                      labelStyle={{ color: 'hsl(220,18%,42%)' }}
-                    />
+                    <Tooltip contentStyle={{ background: 'white', border: '1px solid hsl(220,16%,82%)', borderRadius: 2, fontSize: 13, fontFamily: 'IBM Plex Mono' }}
+                      itemStyle={{ color: 'hsl(220,30%,12%)' }} labelStyle={{ color: 'hsl(220,18%,42%)' }} />
                     {sweepResult.optimal && (
                       <ReferenceLine x={sweepResult.optimal} stroke="hsl(191,70%,32%)" strokeDasharray="4 4"
                         label={{ value: 'optimal', position: 'top', fill: 'hsl(191,70%,32%)', fontSize: 12, fontFamily: 'IBM Plex Mono' }} />
                     )}
-                    <Area type="monotone" dataKey="growth" stroke="hsl(191,70%,32%)" strokeWidth={2}
-                      fill="hsl(191,70%,32%)" fillOpacity={0.08} name="g/wk" />
+                    <Area type="monotone" dataKey="growth" stroke="hsl(191,70%,32%)" strokeWidth={2} fill="hsl(191,70%,32%)" fillOpacity={0.08} name="g/wk" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -247,20 +255,15 @@ Question: ${question}`;
         </div>
       )}
 
-      {/* AI Ask */}
       {tab === 'ask' && (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
           <div className={cn(panel, 'xl:col-span-8 p-6')}>
             <h3 className="text-base font-bold text-[hsl(220,30%,12%)] mb-1" style={{ fontFamily: 'Syne, sans-serif' }}>AI Assistant</h3>
             <p className="text-[13px] font-mono text-[hsl(220,18%,42%)] mb-5">Ask about sensors, model predictions, or aquaculture science</p>
-            <textarea
-              value={query}
-              onChange={e => setQuery(e.target.value)}
+            <textarea value={query} onChange={e => setQuery(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askAI(); } }}
-              placeholder="e.g. What TDS level is dangerous for shrimp?"
-              rows={3}
-              className="w-full bg-[hsl(220,16%,96%)] border border-[hsl(220,16%,80%)] px-4 py-3 text-[13px] font-mono text-[hsl(220,25%,18%)] placeholder:text-[hsl(220,18%,60%)] resize-none focus:outline-none focus:border-[hsl(191,70%,40%)]"
-            />
+              placeholder="e.g. What TDS level is dangerous for shrimp?" rows={3}
+              className="w-full bg-[hsl(220,16%,96%)] border border-[hsl(220,16%,80%)] px-4 py-3 text-[13px] font-mono text-[hsl(220,25%,18%)] placeholder:text-[hsl(220,18%,60%)] resize-none focus:outline-none focus:border-[hsl(191,70%,40%)]" />
             <div className="flex justify-end mt-3">
               <button onClick={() => askAI()} disabled={askLoading || askCooldown || !query.trim()}
                 className="px-6 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors disabled:opacity-40 flex items-center gap-2">
