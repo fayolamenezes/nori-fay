@@ -26,7 +26,7 @@ FEATURES = [
     "tan_mg_l", "seaweed_biomass_kg", "feed_input_kg",
     "feeding_rate_actual", "shrimp_seaweed_ratio", "buffer_index",
     "oxygen_stress", "thermal_stress", "ph", "salinity_ppt",
-    "culture_type_IMTA"  # one-hot encoded (drop_first=True)
+    "culture_type_Monoculture"  # one-hot encoded (drop_first=True)
 ]
 
 class PredictRequest(BaseModel):
@@ -71,7 +71,7 @@ def predict(req: PredictRequest):
         "thermal_stress":      req.thermal_stress,
         "ph":                  req.ph,
         "salinity_ppt":        req.salinity_ppt,
-        "culture_type_IMTA":   1 if req.culture_type == "IMTA" else 0,
+        "culture_type_Monoculture": 0 if req.culture_type == "IMTA" else 1,
     }
     X = pd.DataFrame([row])[FEATURES]
     xgb_pred  = float(xgb.predict(X)[0])
