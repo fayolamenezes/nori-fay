@@ -5,6 +5,8 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
 import { canCallGemini, markGeminiStart, markGeminiEnd } from '@/lib/geminiRateLimit';
 
+const PREDICT_URL = 'https://nori-predict.onrender.com/predict';
+
 const MODEL_METRICS = [
   { label: 'XGBoost R²', value: '0.9057' },
   { label: 'LightGBM R²', value: '0.9072' },
@@ -35,15 +37,6 @@ const SLIDERS = [
 
 type Params = Record<string, number>;
 
-function computeGrowth(p: Params): number {
-  const ageFactor = Math.min(p.age_days / 60, 1.2) * 0.25;
-  const seaweedFactor = Math.min(p.seaweed_biomass_kg / 150, 1.0) * 0.12;
-  const tdsPenalty = p.tds_ppm > 800 ? (p.tds_ppm - 800) / 5000 : 0;
-  const tempFactor = p.temperature_c >= 27 && p.temperature_c <= 30 ? 0.08 : Math.max(0, 0.08 - Math.abs(p.temperature_c - 28.5) * 0.02);
-  const phFactor = p.ph >= 7.5 && p.ph <= 8.5 ? 0.05 : 0.02;
-  return Math.max(0.05, Math.min(1.8, 0.25 + ageFactor + seaweedFactor + tempFactor + phFactor - tdsPenalty));
-}
-
 function statusOf(g: number) {
   if (g >= 0.8) return { label: 'Optimal', color: 'text-[hsl(158,48%,28%)]', bg: 'bg-[hsl(158,48%,96%)]', border: 'border-[hsl(158,48%,78%)]' };
   if (g >= 0.55) return { label: 'Good', color: 'text-[hsl(191,70%,28%)]', bg: 'bg-[hsl(191,70%,96%)]', border: 'border-[hsl(191,70%,75%)]' };
@@ -67,34 +60,53 @@ const Predictions = () => {
   const [result, setResult] = useState<null | { g: number; low: number; high: number } & ReturnType<typeof statusOf>>(null);
   const [aiText, setAiText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [predLoading, setPredLoading] = useState(false);
   const [cooldown, setCooldown] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const aiCache = useRef<Record<string, string>>({});
 
-  const predict = () => {
-    if (loading) return;
+  const predict = async () => {
+    if (loading || predLoading) return;
+    setPredLoading(true);
 
-    const g = computeGrowth(params);
-    const st = statusOf(g);
-    setResult({ g: Math.round(g * 1000) / 1000, low: Math.round(g * 0.87 * 100) / 100, high: Math.round(g * 1.13 * 100) / 100, ...st });
+    try {
+      const res = await fetch(PREDICT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          temperature_c:      params.temperature_c,
+          ph:                 params.ph,
+          age_days:           params.age_days,
+          seaweed_biomass_kg: params.seaweed_biomass_kg,
+          // rest use model defaults
+        }),
+      });
 
-    const cacheKey = getCacheKey(params);
+      const data = await res.json();
+      const g = data.ensemble;
+      const st = statusOf(g);
+      setResult({ g, low: data.low, high: data.high, ...st });
 
-    // Return cached response instantly if same params
-    if (aiCache.current[cacheKey]) {
-      setAiText(aiCache.current[cacheKey]);
-      return;
+      const cacheKey = getCacheKey(params);
+      if (aiCache.current[cacheKey]) {
+        setAiText(aiCache.current[cacheKey]);
+        return;
+      }
+      if (!canCallGemini()) {
+        setAiText('Rate limit reached — please wait a moment and try again.');
+        return;
+      }
+      if (cooldown) return;
+      setCooldown(true);
+      setTimeout(() => setCooldown(false), 8000);
+      getAI(g, params, cacheKey);
+
+    } catch {
+      setResult(null);
+      setAiText('Prediction failed — check if the model server is running.');
+    } finally {
+      setPredLoading(false);
     }
-
-    if (!canCallGemini()) {
-      setAiText('Rate limit reached — please wait a moment and try again.');
-      return;
-    }
-
-    if (cooldown) return;
-    setCooldown(true);
-    setTimeout(() => setCooldown(false), 8000);
-    getAI(g, params, cacheKey);
   };
 
   const getAI = async (g: number, p: Params, cacheKey: string) => {
@@ -184,9 +196,10 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
           </div>
 
           <div className="mt-8 pt-5 border-t border-[hsl(220,16%,85%)] flex justify-end">
-            <button onClick={predict} disabled={loading || cooldown}
-              className="px-7 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              {cooldown ? 'Please wait...' : 'Run Prediction'}
+            <button onClick={predict} disabled={loading || predLoading || cooldown}
+              className="px-7 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+              {predLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {predLoading ? 'Predicting...' : cooldown ? 'Please wait...' : 'Run Prediction'}
             </button>
           </div>
         </div>
@@ -195,7 +208,11 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
           <div className="bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6 flex-1 min-h-[200px]">
             <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)] mb-5">Predicted Weekly Growth</p>
             <AnimatePresence mode="wait">
-              {result ? (
+              {predLoading ? (
+                <motion.div key="predload" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2.5 mt-4">
+                  {[60, 40, 80].map((w, i) => <div key={i} className="h-3 skeleton" style={{ width: `${w}%` }} />)}
+                </motion.div>
+              ) : result ? (
                 <motion.div key="res" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <div className="flex items-baseline gap-2 mb-5">
                     <span className="text-5xl font-mono font-semibold text-[hsl(220,30%,10%)] tabular-nums leading-none">{result.g.toFixed(3)}</span>
