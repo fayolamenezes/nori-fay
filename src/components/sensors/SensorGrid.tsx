@@ -7,7 +7,8 @@ interface SensorGridProps {
 }
 
 export const SensorGrid = ({ sensors }: SensorGridProps) => {
-  const sensorEntries = Object.entries(sensors) as [keyof SensorData, number][];
+  const sensorEntries = (Object.entries(sensors) as [keyof SensorData, number][])
+    .filter(([sensor]) => sensor !== 'dissolvedOxygen');
 
   return (
     <motion.div
