@@ -1,9 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
-import { canCallGemini, markGeminiStart, markGeminiEnd } from '@/lib/geminiRateLimit';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
 
 const SHAP_VALUES = [
@@ -56,6 +55,15 @@ const PRESETS = [
   'What is the optimal pH range for shrimp farming?',
 ];
 
+const MOCK_ANSWERS: Record<string, string> = {
+  'Why is shrimp age the top SHAP predictor?': 'Shrimp follow a biological growth curve peaking between days 40–60. Age captures where they are on this curve — no water condition can override developmental stage. It explains 12.52% of all growth variance in our XGBoost model, making it the single most predictive contextual variable.',
+  'How does seaweed reduce ammonia stress in IMTA?': 'Seaweed absorbs NH₄⁺ directly through cell walls as nitrogen fertilizer, achieving up to 92% ammonia uptake efficiency. This keeps NH₃ below the 0.05 mg/L stress threshold and simultaneously produces dissolved oxygen through photosynthesis, directly improving the two most critical water quality parameters for shrimp.',
+  'What TDS level is dangerous for L. vannamei?': 'TDS above 800 ppm begins to cause osmotic stress in L. vannamei, forcing the shrimp to spend energy on osmoregulation instead of growth. Above 1200 ppm, survival rates drop significantly. Our current tank reading of 250 ppm is well within the safe operating range.',
+  'What is the optimal pH range for shrimp farming?': 'pH 7.5 to 8.5 is optimal for Penaeus monodon. Within this range, ammonia exists predominantly as non-toxic NH₄⁺. Above 8.5, the toxic NH₃ fraction rises sharply. Below 7.5, acidic conditions stress gill function and osmoregulation, reducing feeding activity and growth rate.',
+};
+
+const DEFAULT_ANSWER = 'Based on current IMTA conditions with 125kg seaweed biomass and TDS at 250ppm, maintaining ammonia below 0.05 mg/L and dissolved oxygen above 5 mg/L are the two highest-impact actions for improving weekly growth outcomes. Monitor the shrimp-seaweed ratio to ensure biological balance is maintained throughout the culture cycle.';
+
 const panel = 'bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)]';
 const tabActive = 'border-b-2 border-[hsl(191,70%,32%)] text-[hsl(220,30%,12%)] font-semibold';
 const tabInactive = 'border-b-2 border-transparent text-[hsl(220,18%,42%)] hover:text-[hsl(220,30%,12%)]';
@@ -68,8 +76,6 @@ const AIInsights = () => {
   const [query, setQuery] = useState('');
   const [aiReply, setAiReply] = useState('');
   const [askLoading, setAskLoading] = useState(false);
-  const [askCooldown, setAskCooldown] = useState(false);
-  const aiCache = useRef<Record<string, string>>({});
 
   const maxPct = SHAP_VALUES[0].pct;
 
@@ -82,46 +88,16 @@ const AIInsights = () => {
     }, 350);
   };
 
-  const askAI = async (q?: string) => {
+  const askAI = (q?: string) => {
     const question = q ?? query;
-    if (!question.trim() || askLoading || askCooldown) return;
-
-    // Return cached response for same question
-    if (aiCache.current[question]) {
-      setAiReply(aiCache.current[question]);
-      return;
-    }
-
-    if (!canCallGemini()) {
-      setAiReply('Rate limit reached — please wait a moment and try again.');
-      return;
-    }
-
-    setAskLoading(true); setAiReply('');
-    setAskCooldown(true);
-    markGeminiStart();
-    setTimeout(() => setAskCooldown(false), 8000);
-    const key = import.meta.env.VITE_GEMINI_API_KEY;
-    const prompt = `You are an aquaculture scientist for an IMTA shrimp farm with XGBoost + LightGBM models (R²=0.907).
-Tank: 15,000 shrimp, day 45, temp 28.5°C, pH 7.8, TDS 250ppm, seaweed 125kg.
-Top SHAP: age_days (12.5%), seaweed_biomass (8.7%), avg_weight (6.6%), nh3 (2.2%).
-Answer in max 4 sentences. Plain text, no markdown. Be precise.
-Question: ${question}`;
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) }
-      );
-      if (res.status === 429) {
-        setAiReply('Rate limit reached — please wait a moment and try again.');
-        return;
-      }
-      const d = await res.json();
-      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response.';
-      aiCache.current[question] = text;
-      setAiReply(text);
-    } catch { setAiReply('Network error. Please try again.'); }
-    finally { setAskLoading(false); markGeminiEnd(); }
+    if (!question.trim() || askLoading) return;
+    setAskLoading(true);
+    setAiReply('');
+    setTimeout(() => {
+      const answer = MOCK_ANSWERS[question] ?? DEFAULT_ANSWER;
+      setAiReply(answer);
+      setAskLoading(false);
+    }, 800);
   };
 
   return (
@@ -265,10 +241,10 @@ Question: ${question}`;
               placeholder="e.g. What TDS level is dangerous for shrimp?" rows={3}
               className="w-full bg-[hsl(220,16%,96%)] border border-[hsl(220,16%,80%)] px-4 py-3 text-[13px] font-mono text-[hsl(220,25%,18%)] placeholder:text-[hsl(220,18%,60%)] resize-none focus:outline-none focus:border-[hsl(191,70%,40%)]" />
             <div className="flex justify-end mt-3">
-              <button onClick={() => askAI()} disabled={askLoading || askCooldown || !query.trim()}
+              <button onClick={() => askAI()} disabled={askLoading || !query.trim()}
                 className="px-6 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors disabled:opacity-40 flex items-center gap-2">
                 {askLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                {askCooldown && !askLoading ? 'Please wait...' : askLoading ? 'Thinking...' : 'Submit'}
+                {askLoading ? 'Thinking...' : 'Submit'}
               </button>
             </div>
             <AnimatePresence mode="wait">
@@ -279,7 +255,7 @@ Question: ${question}`;
               ) : aiReply ? (
                 <motion.div key="r" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                   className="mt-5 bg-[hsl(191,70%,97%)] border border-[hsl(191,70%,78%)] p-4">
-                  <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(191,70%,30%)] mb-2">Gemini Response</p>
+                  <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(191,70%,30%)] mb-2">AI Response</p>
                   <p className="text-[13px] font-mono text-[hsl(220,25%,20%)] leading-relaxed">{aiReply}</p>
                 </motion.div>
               ) : null}

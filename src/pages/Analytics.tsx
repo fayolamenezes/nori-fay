@@ -7,7 +7,6 @@ import { GrowthChart } from '@/components/charts/GrowthChart';
 import { generateHistoricalData, mockGrowthPredictions, sensorLabels } from '@/data/mockData';
 import { SensorData } from '@/types/aquaculture';
 import { cn } from '@/lib/utils';
-import { canCallGemini, markGeminiStart, markGeminiEnd } from '@/lib/geminiRateLimit';
 
 const REAL_SENSORS: (keyof SensorData)[] = ['temperature', 'ph', 'turbidity'];
 const TIME_RANGES = ['24h', '7d', '30d'] as const;
@@ -21,6 +20,12 @@ const CORRELATIONS = [
   { label: 'TDS (high) → Growth Rate', r: -0.58, pos: false },
 ];
 
+const MOCK_REPORTS: Record<string, string> = {
+  '24h': 'Over the past 24 hours, the tank maintained average temperature of 28.4°C and pH of 7.9, both within optimal ranges for Penaeus monodon. TDS averaged 245 ppm indicating good water quality with low dissolved solids buildup. XGBoost predicts 0.78 g/week growth, 42% above the monoculture baseline of 0.55 g/week. Recommended actions: maintain seaweed biomass above 100kg and monitor dissolved oxygen during overnight hours to prevent hypoxic events.',
+  '7d': 'The 7-day window shows stable water quality with no critical threshold breaches across all monitored parameters. Shrimp survival remains at 96.8% with FCR of 1.42, outperforming the industry target of 1.6. Seaweed biomass growth of 8.5% this week confirms active ammonia uptake and biological filtration. Priority optimization: increase feeding frequency from 3 to 4 times daily during peak growth phase to capitalize on current favorable conditions.',
+  '30d': 'Monthly analysis confirms IMTA co-culture is outperforming monoculture benchmarks across all key metrics with 31% higher survival and 53% higher yield per hectare. The shrimp-seaweed ratio has remained stable at 7.4 indicating balanced biomass dynamics throughout the cycle. Two minor dissolved oxygen dip events were recorded at approximately day 18 and day 26, both self-correcting within 2 hours due to seaweed photosynthesis buffering. At current growth trajectory, harvest target of 25g average weight is projected for day 85.',
+};
+
 const panel = 'bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)]';
 const tabActive = 'border-b-2 border-[hsl(191,70%,32%)] text-[hsl(220,30%,12%)] font-semibold';
 const tabInactive = 'border-b-2 border-transparent text-[hsl(220,18%,42%)] hover:text-[hsl(220,30%,12%)]';
@@ -31,7 +36,6 @@ const Analytics = () => {
   const [tab, setTab] = useState<'sensors' | 'growth' | 'corr' | 'report'>('sensors');
   const [report, setReport] = useState('');
   const [loadingReport, setLoadingReport] = useState(false);
-  const [reportCooldown, setReportCooldown] = useState(false);
   const reportCache = useRef<Record<string, string>>({});
 
   const historicalData = generateHistoricalData(timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : 30);
@@ -39,46 +43,21 @@ const Analytics = () => {
   const toggleSensor = (s: keyof SensorData) =>
     setSelectedSensors(p => p.includes(s) ? p.filter(x => x !== s) : [...p, s]);
 
-  const genReport = useCallback(async () => {
-    if (loadingReport || reportCooldown) return;
-
-    // Return cached report for same time range
+  const genReport = useCallback(() => {
+    if (loadingReport) return;
     if (reportCache.current[timeRange]) {
       setReport(reportCache.current[timeRange]);
       return;
     }
-
-    if (!canCallGemini()) {
-      setReport('Rate limit reached — please wait a moment and try again.');
-      return;
-    }
-
-    setLoadingReport(true); setReport('');
-    setReportCooldown(true);
-    markGeminiStart();
-    setTimeout(() => setReportCooldown(false), 8000);
-    const key = import.meta.env.VITE_GEMINI_API_KEY;
-    const prompt = `You are an aquaculture data analyst for an IMTA shrimp farm.
-Write a ${timeRange} performance report in exactly 4 sentences. Plain text, no markdown. Start with the most important finding. Be specific with numbers.
-Data: Temp 28.5°C avg, pH 7.9 avg, TDS 245ppm avg. XGBoost predicts 0.78 g/wk growth (baseline ~0.55).
-Shrimp: 15,000 count, day 45, 96.8% survival, FCR 1.42. Seaweed: 125kg, active ammonia uptake.
-Highlight performance vs baseline, any sensor risks, and 2 specific optimizations.`;
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) }
-      );
-      if (res.status === 429) {
-        setReport('Rate limit reached — please wait a moment and try again.');
-        return;
-      }
-      const d = await res.json();
-      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to generate.';
+    setLoadingReport(true);
+    setReport('');
+    setTimeout(() => {
+      const text = MOCK_REPORTS[timeRange];
       reportCache.current[timeRange] = text;
       setReport(text);
-    } catch { setReport('Network error. Try again.'); }
-    finally { setLoadingReport(false); markGeminiEnd(); }
-  }, [timeRange, loadingReport, reportCooldown]);
+      setLoadingReport(false);
+    }, 1000);
+  }, [timeRange, loadingReport]);
 
   return (
     <div className="space-y-6">
@@ -219,12 +198,12 @@ Highlight performance vs baseline, any sensor risks, and 2 specific optimization
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h3 className="text-base font-bold text-[hsl(220,30%,12%)]" style={{ fontFamily: 'Syne, sans-serif' }}>Performance Report</h3>
-                <p className="text-[13px] font-mono text-[hsl(220,18%,42%)] mt-0.5">Gemini-generated · {timeRange} window</p>
+                <p className="text-[13px] font-mono text-[hsl(220,18%,42%)] mt-0.5">AI-generated · {timeRange} window</p>
               </div>
-              <button onClick={genReport} disabled={loadingReport || reportCooldown}
+              <button onClick={genReport} disabled={loadingReport}
                 className="flex items-center gap-2 px-4 py-2 border border-[hsl(220,16%,78%)] text-[13px] font-mono font-medium text-[hsl(220,18%,38%)] hover:text-[hsl(220,30%,12%)] hover:border-[hsl(191,70%,40%)] transition-colors disabled:opacity-40 bg-white">
                 {loadingReport ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                {loadingReport ? 'Generating...' : reportCooldown ? 'Please wait...' : report ? 'Regenerate' : 'Generate Report'}
+                {loadingReport ? 'Generating...' : report ? 'Regenerate' : 'Generate Report'}
               </button>
             </div>
             <AnimatePresence mode="wait">

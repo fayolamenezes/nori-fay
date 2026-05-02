@@ -1,9 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, RefreshCw, TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
-import { canCallGemini, markGeminiStart, markGeminiEnd } from '@/lib/geminiRateLimit';
 
 const PREDICT_URL = 'https://nori-fay.onrender.com/predict';
 
@@ -44,14 +43,22 @@ function statusOf(g: number) {
   return { label: 'Poor', color: 'text-[hsl(0,62%,40%)]', bg: 'bg-[hsl(0,62%,97%)]', border: 'border-[hsl(0,62%,80%)]' };
 }
 
-function getCacheKey(p: Params): string {
-  return [
-    Math.round(p.temperature_c * 10) / 10,
-    Math.round(p.ph * 10) / 10,
-    Math.round(p.tds_ppm / 50) * 50,
-    p.age_days,
-    Math.round(p.seaweed_biomass_kg / 25) * 25,
-  ].join('_');
+function getMockInsights(g: number, p: Params): string {
+  const ageInsight = p.age_days < 40
+    ? `1. At day ${p.age_days}, shrimp are in early growth phase — increase feeding frequency to 4x daily to accelerate weight gain.`
+    : p.age_days > 70
+    ? `1. At day ${p.age_days}, shrimp are approaching harvest weight — monitor FCR closely and avoid overfeeding to reduce waste.`
+    : `1. At day ${p.age_days}, shrimp are in peak growth phase — maintain feeding rate above 3% body weight daily for optimal gain.`;
+
+  const seaweedInsight = p.seaweed_biomass_kg < 80
+    ? `2. Seaweed biomass of ${p.seaweed_biomass_kg}kg is below optimal — increase to 100kg+ to improve ammonia buffering and dissolved oxygen.`
+    : `2. Seaweed biomass of ${p.seaweed_biomass_kg}kg is actively reducing ammonia — maintain above 100kg for effective biological filtration.`;
+
+  const tdsInsight = p.tds_ppm > 800
+    ? `3. TDS at ${p.tds_ppm}ppm exceeds safe threshold — perform 20% water exchange immediately to reduce osmotic stress on shrimp.`
+    : `3. TDS at ${p.tds_ppm}ppm is within safe range — continue monitoring and perform routine water exchange every 7 days.`;
+
+  return `${ageInsight}\n${seaweedInsight}\n${tdsInsight}`;
 }
 
 const Predictions = () => {
@@ -61,9 +68,6 @@ const Predictions = () => {
   const [aiText, setAiText] = useState('');
   const [loading, setLoading] = useState(false);
   const [predLoading, setPredLoading] = useState(false);
-  const [cooldown, setCooldown] = useState(false);
-  const abort = useRef<AbortController | null>(null);
-  const aiCache = useRef<Record<string, string>>({});
 
   const predict = async () => {
     if (loading || predLoading) return;
@@ -78,7 +82,6 @@ const Predictions = () => {
           ph:                 params.ph,
           age_days:           params.age_days,
           seaweed_biomass_kg: params.seaweed_biomass_kg,
-          // rest use model defaults
         }),
       });
 
@@ -87,19 +90,13 @@ const Predictions = () => {
       const st = statusOf(g);
       setResult({ g, low: data.low, high: data.high, ...st });
 
-      const cacheKey = getCacheKey(params);
-      if (aiCache.current[cacheKey]) {
-        setAiText(aiCache.current[cacheKey]);
-        return;
-      }
-      if (!canCallGemini()) {
-        setAiText('Rate limit reached — please wait a moment and try again.');
-        return;
-      }
-      if (cooldown) return;
-      setCooldown(true);
-      setTimeout(() => setCooldown(false), 8000);
-      getAI(g, params, cacheKey);
+      // Mock AI insights
+      setLoading(true);
+      setAiText('');
+      setTimeout(() => {
+        setAiText(getMockInsights(g, params));
+        setLoading(false);
+      }, 800);
 
     } catch {
       setResult(null);
@@ -107,33 +104,6 @@ const Predictions = () => {
     } finally {
       setPredLoading(false);
     }
-  };
-
-  const getAI = async (g: number, p: Params, cacheKey: string) => {
-    if (abort.current) abort.current.abort();
-    abort.current = new AbortController();
-    setLoading(true); setAiText('');
-    markGeminiStart();
-    const key = import.meta.env.VITE_GEMINI_API_KEY;
-    const prompt = `You are an expert aquaculture scientist for an IMTA shrimp farm.
-XGBoost + LightGBM model (R²=0.907) predicted ${g.toFixed(3)} g/week growth.
-Inputs: Temp=${p.temperature_c}°C, pH=${p.ph}, TDS=${p.tds_ppm}ppm, Age=${p.age_days}d, Seaweed=${p.seaweed_biomass_kg}kg.
-Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words each. Be specific and actionable.`;
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }), signal: abort.current.signal }
-      );
-      if (res.status === 429) {
-        setAiText('Rate limit reached — please wait a moment and try again.');
-        return;
-      }
-      const d = await res.json();
-      const text = d?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      aiCache.current[cacheKey] = text;
-      setAiText(text);
-    } catch { setAiText(''); }
-    finally { setLoading(false); markGeminiEnd(); }
   };
 
   const maxPct = SHAP_DATA[0].pct;
@@ -196,10 +166,10 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
           </div>
 
           <div className="mt-8 pt-5 border-t border-[hsl(220,16%,85%)] flex justify-end">
-            <button onClick={predict} disabled={loading || predLoading || cooldown}
+            <button onClick={predict} disabled={loading || predLoading}
               className="px-7 py-2.5 bg-[hsl(191,70%,32%)] text-white text-[13px] font-mono font-semibold tracking-wide hover:bg-[hsl(191,70%,28%)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
               {predLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              {predLoading ? 'Predicting...' : cooldown ? 'Please wait...' : 'Run Prediction'}
+              {predLoading ? 'Predicting...' : 'Run Prediction'}
             </button>
           </div>
         </div>
@@ -239,7 +209,7 @@ Write exactly 3 numbered insights. Plain text only, no markdown. Max 22 words ea
 
           <div className="bg-white border border-[hsl(220,16%,80%)] shadow-[0_1px_3px_hsl(220,20%,80%/0.5)] p-6 flex-1 min-h-[160px]">
             <div className="flex items-center gap-2 mb-4">
-              <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)]">Gemini Analysis</p>
+              <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[hsl(220,18%,45%)]">AI Analysis</p>
               {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[hsl(191,70%,32%)]" />}
             </div>
             <AnimatePresence mode="wait">
