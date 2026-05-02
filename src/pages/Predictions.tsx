@@ -5,7 +5,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
 import { canCallGemini, markGeminiStart, markGeminiEnd } from '@/lib/geminiRateLimit';
 
-const PREDICT_URL = 'https://nori-predict.onrender.com/predict';
+const PREDICT_URL = 'https://nori-fay.onrender.com/predict';
 
 const MODEL_METRICS = [
   { label: 'XGBoost R²', value: '0.9057' },
