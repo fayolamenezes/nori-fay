@@ -11,12 +11,7 @@ export interface SensorData {
   temperature: number;
   ph: number;
   dissolvedOxygen: number;
-  ammonia: number;
-  nitrite: number;
-  nitrate: number;
-  salinity: number;
   turbidity: number;
-  tan: number;
 }
 
 export interface TankStatus {

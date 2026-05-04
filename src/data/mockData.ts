@@ -5,12 +5,7 @@ export const generateSensorData = (): SensorData => ({
   temperature: 28 + Math.random() * 2 - 1,
   ph: 7.8 + Math.random() * 0.4 - 0.2,
   dissolvedOxygen: 5.5 + Math.random() * 1.5 - 0.5,
-  ammonia: 0.02 + Math.random() * 0.08,
-  nitrite: 0.1 + Math.random() * 0.15,
-  nitrate: 15 + Math.random() * 10,
-  salinity: 25 + Math.random() * 3,
   turbidity: 200 + Math.random() * 50,
-  tan: 0.5 + Math.random() * 0.3,
 });
 
 export const getSensorStatus = (sensor: keyof SensorData, value: number): 'optimal' | 'warning' | 'critical' => {
@@ -18,12 +13,7 @@ export const getSensorStatus = (sensor: keyof SensorData, value: number): 'optim
     temperature: { optimal: [27, 30], warning: [25, 32] },
     ph: { optimal: [7.5, 8.5], warning: [7.0, 9.0] },
     dissolvedOxygen: { optimal: [5, 8], warning: [4, 10] },
-    ammonia: { optimal: [0, 0.05], warning: [0, 0.1] },
-    nitrite: { optimal: [0, 0.2], warning: [0, 0.5] },
-    nitrate: { optimal: [0, 20], warning: [0, 40] },
-    salinity: { optimal: [24, 28], warning: [20, 32] },
     turbidity: { optimal: [0, 500], warning: [0, 1000] },
-    tan: { optimal: [0, 0.5], warning: [0, 1.0] },
   };
 
   const { optimal, warning } = thresholds[sensor];
@@ -149,46 +139,26 @@ export const defaultThresholds: ThresholdSettings[] = [
   { sensor: 'temperature', min: 25, max: 32, warningMin: 26, warningMax: 30, unit: '°C' },
   { sensor: 'ph', min: 7.0, max: 9.0, warningMin: 7.5, warningMax: 8.5, unit: '' },
   { sensor: 'dissolvedOxygen', min: 4.0, max: 10.0, warningMin: 5.0, warningMax: 8.0, unit: 'mg/L' },
-  { sensor: 'ammonia', min: 0, max: 0.15, warningMin: 0, warningMax: 0.05, unit: 'mg/L' },
-  { sensor: 'nitrite', min: 0, max: 0.5, warningMin: 0, warningMax: 0.2, unit: 'mg/L' },
-  { sensor: 'nitrate', min: 0, max: 50, warningMin: 0, warningMax: 20, unit: 'mg/L' },
-  { sensor: 'salinity', min: 18, max: 35, warningMin: 24, warningMax: 28, unit: 'ppt' },
   { sensor: 'turbidity', min: 0, max: 30, warningMin: 0, warningMax: 15, unit: 'NTU' },
-  { sensor: 'tan', min: 0, max: 1.5, warningMin: 0, warningMax: 0.5, unit: 'mg/L' },
 ];
 
 export const sensorLabels: Record<keyof SensorData, string> = {
   temperature: 'Temperature',
   ph: 'pH Level',
   dissolvedOxygen: 'Dissolved Oxygen',
-  ammonia: 'Ammonia (NH₃)',
-  nitrite: 'Nitrite (NO₂)',
-  nitrate: 'Nitrate (NO₃)',
-  salinity: 'Salinity',
   turbidity: 'TDS (Conductivity)',
-  tan: 'Total Ammonia Nitrogen',
 };
 
 export const sensorUnits: Record<keyof SensorData, string> = {
   temperature: '°C',
   ph: '',
   dissolvedOxygen: 'mg/L',
-  ammonia: 'mg/L',
-  nitrite: 'mg/L',
-  nitrate: 'mg/L',
-  salinity: 'ppt',
   turbidity: 'ppm',
-  tan: 'mg/L',
 };
 
 export const sensorIcons: Record<keyof SensorData, string> = {
   temperature: 'Thermometer',
   ph: 'FlaskConical',
   dissolvedOxygen: 'Wind',
-  ammonia: 'AlertTriangle',
-  nitrite: 'TestTube',
-  nitrate: 'Beaker',
-  salinity: 'Waves',
   turbidity: 'Eye',
-  tan: 'Atom',
 };

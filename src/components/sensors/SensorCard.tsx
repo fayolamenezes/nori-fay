@@ -1,14 +1,5 @@
 import { motion } from 'framer-motion';
-import {
-  Thermometer,
-  Droplets,
-  Wind,
-  AlertTriangle,
-  TestTube2,
-  Waves,
-  Eye,
-  Atom,
-} from 'lucide-react';
+import { Thermometer, Droplets, FlaskConical, Gauge } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SensorData } from '@/types/aquaculture';
 import { getSensorStatus, sensorLabels, sensorUnits } from '@/data/mockData';
@@ -17,120 +8,92 @@ interface SensorCardProps {
   sensor: keyof SensorData;
   value: number;
   className?: string;
-  showTrend?: boolean;
   delay?: number;
 }
 
 const sensorIcons: Record<keyof SensorData, typeof Thermometer> = {
   temperature: Thermometer,
-  ph: Droplets,
-  dissolvedOxygen: Wind,
-  ammonia: AlertTriangle,
-  nitrite: TestTube2,
-  nitrate: TestTube2,
-  salinity: Waves,
-  turbidity: Eye,
-  tan: Atom,
+  ph: FlaskConical,
+  dissolvedOxygen: Gauge,
+  turbidity: Droplets,
 };
 
-const sensorColors: Record<'optimal' | 'warning' | 'critical', string> = {
-  optimal: 'text-seaweed border-seaweed/40 bg-seaweed/10',
-  warning: 'text-warning border-warning/40 bg-warning/10',
-  critical: 'text-destructive border-destructive/40 bg-destructive/10',
+const statusConfig = {
+  optimal: {
+    dot: 'bg-[hsl(158,48%,32%)]',
+    label: 'Nominal',
+    labelColor: 'text-[hsl(158,48%,28%)]',
+    barColor: 'bg-[hsl(158,48%,32%)]',
+    tagBg: 'bg-[hsl(158,48%,95%)]',
+    tagBorder: 'border-[hsl(158,48%,80%)]',
+  },
+  warning: {
+    dot: 'bg-[hsl(36,72%,40%)]',
+    label: 'Warning',
+    labelColor: 'text-[hsl(36,72%,34%)]',
+    barColor: 'bg-[hsl(36,72%,40%)]',
+    tagBg: 'bg-[hsl(36,72%,95%)]',
+    tagBorder: 'border-[hsl(36,72%,76%)]',
+  },
+  critical: {
+    dot: 'bg-[hsl(0,62%,46%)]',
+    label: 'Critical',
+    labelColor: 'text-[hsl(0,62%,40%)]',
+    barColor: 'bg-[hsl(0,62%,46%)]',
+    tagBg: 'bg-[hsl(0,62%,97%)]',
+    tagBorder: 'border-[hsl(0,62%,82%)]',
+  },
 };
 
-const sensorGlows: Record<'optimal' | 'warning' | 'critical', string> = {
-  optimal: 'glow-success',
-  warning: 'glow-warning',
-  critical: 'glow-danger',
-};
-
-export const SensorCard = ({
-  sensor,
-  value,
-  className,
-  showTrend = true,
-  delay = 0,
-}: SensorCardProps) => {
+export const SensorCard = ({ sensor, value, className, delay = 0 }: SensorCardProps) => {
   const Icon = sensorIcons[sensor];
   const status = getSensorStatus(sensor, value);
+  const cfg = statusConfig[status];
   const label = sensorLabels[sensor];
   const unit = sensorUnits[sensor];
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 18 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: delay * 0.08 }}
-      whileHover={{ scale: 1.03 }}
+      transition={{ delay: delay * 0.07, duration: 0.3 }}
       className={cn(
-        'relative p-6 rounded-2xl border overflow-hidden group',
-        'bg-card-gradient transition-all duration-300',
-        'shadow-sm hover:shadow-md',
-        sensorColors[status],
-        sensorGlows[status],
+        'bg-white border border-[hsl(220,16%,80%)] p-5',
+        'shadow-[0_1px_3px_hsl(220,20%,80%/0.5)]',
+        'transition-all duration-150 hover:border-[hsl(191,70%,60%)] hover:shadow-[0_2px_8px_hsl(220,20%,70%/0.4)]',
         className
       )}
     >
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-sensor-gradient opacity-0 group-hover:opacity-100 transition-opacity" />
-
-      {/* Status dot */}
-      <div
-        className={cn(
-          'absolute top-4 right-4 w-3.5 h-3.5 rounded-full',
-          status === 'optimal' && 'bg-seaweed',
-          status === 'warning' && 'bg-warning animate-pulse',
-          status === 'critical' && 'bg-destructive animate-pulse'
-        )}
-      >
-        {status !== 'optimal' && (
-          <span className="absolute inset-0 rounded-full animate-pulse-ring bg-current opacity-40" />
-        )}
-      </div>
-
-      <div className="relative z-10">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-current/15">
-            <Icon className="w-5.5 h-5.5 text-current" />
-          </div>
-
-          {/* Bold + status-colored */}
-          <span className="text-base font-extrabold uppercase tracking-wide text-current">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Icon className="w-4 h-4 text-[hsl(220,18%,45%)]" strokeWidth={1.75} />
+          <span className="text-[13px] font-semibold text-[hsl(220,25%,25%)] tracking-wide uppercase font-mono">
             {label}
           </span>
         </div>
-
-        {/* VALUE */}
-        <div className="flex items-end gap-2 mb-2">
-          {/* BIG + HEAVY + STATUS COLOR */}
-          <span className="text-5xl font-black font-mono leading-none text-current">
-            {value.toFixed(sensor === 'ph' ? 1 : 2)}
-          </span>
-
-          {/* Unit follows same color but softer */}
-          <span className="text-lg font-bold text-current/80 mb-0.5">
-            {unit}
-          </span>
+        <div className={cn('flex items-center gap-1.5 px-2 py-0.5 border text-[11px] font-mono font-semibold', cfg.tagBg, cfg.tagBorder, cfg.labelColor)}>
+          <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', cfg.dot, status !== 'optimal' && 'ticker-live')} />
+          {cfg.label}
         </div>
+      </div>
 
-        {/* Trend */}
-        {showTrend && (
-          <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-current/80">
-            <span
-              className={cn(
-                'inline-block w-0 h-0',
-                'border-l-[5px] border-l-transparent',
-                'border-r-[5px] border-r-transparent',
-                Math.random() > 0.5
-                  ? 'border-b-[7px] border-b-current'
-                  : 'border-t-[7px] border-t-current'
-              )}
-            />
-            <span>{(Math.random() * 5).toFixed(1)}% from last hour</span>
-          </div>
-        )}
+      {/* Value */}
+      <div className="flex items-baseline gap-2 mb-4">
+        <span className="text-4xl font-mono font-semibold text-[hsl(220,30%,10%)] leading-none tabular-nums">
+          {value.toFixed(sensor === 'ph' ? 1 : sensor === 'temperature' ? 1 : 0)}
+        </span>
+        <span className="text-base font-mono text-[hsl(220,18%,42%)]">{unit}</span>
+      </div>
+
+      {/* Status bar */}
+      <div className="h-1 bg-[hsl(220,16%,90%)] w-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: status === 'optimal' ? '100%' : status === 'warning' ? '60%' : '25%' }}
+          transition={{ delay: delay * 0.07 + 0.2, duration: 0.5, ease: 'easeOut' }}
+          className={cn('h-full', cfg.barColor)}
+        />
       </div>
     </motion.div>
   );
